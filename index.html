@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crafting System Pro v2.0 - Final Edition</title>
+    <title>Crafting System - Vikrama Kulapati</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Library untuk Spreadsheet (Excel) -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
@@ -89,12 +89,12 @@
         function setupRealtimeListeners() {
             if (!window.currentUser) return;
 
-            onSnapshot(doc(db, 'artifacts', window.appId, 'public', 'data', 'global', 'inventory'), (snap) => {
+            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'inventory'), (snap) => {
                 if (snap.exists()) { window.inventory = snap.data(); window.renderInventory(); window.calculateNeeded(); }
-                else { setDoc(doc(db, 'artifacts', window.appId, 'public', 'data', 'global', 'inventory'), Object.fromEntries(window.BASE_MATERIALS.map(m => [m, 0]))); }
+                else { setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'inventory'), Object.fromEntries(window.BASE_MATERIALS.map(m => [m, 0]))); }
             });
 
-            onSnapshot(doc(db, 'artifacts', window.appId, 'public', 'data', 'global', 'prices'), (snap) => {
+            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'prices'), (snap) => {
                 if (snap.exists()) { 
                     window.prices = snap.data(); 
                     window.renderPriceSetup(); 
@@ -102,10 +102,10 @@
                     window.renderDatabaseTable();
                     window.calculateNeeded();
                 }
-                else { setDoc(doc(db, 'artifacts', window.appId, 'public', 'data', 'global', 'prices'), Object.fromEntries(window.BASE_MATERIALS.map(m => [m, 0]))); }
+                else { setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'prices'), Object.fromEntries(window.BASE_MATERIALS.map(m => [m, 0]))); }
             });
 
-            onSnapshot(collection(db, 'artifacts', window.appId, 'public', 'data', 'recipes'), (snap) => {
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'recipes'), (snap) => {
                 const newRecipes = {};
                 snap.forEach(d => newRecipes[d.id] = d.data());
                 window.recipes = newRecipes;
@@ -114,7 +114,7 @@
                 window.calculateNeeded();
             });
 
-            onSnapshot(collection(db, 'artifacts', window.appId, 'public', 'data', 'history'), (snap) => {
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'history'), (snap) => {
                 const logs = [];
                 snap.forEach(d => logs.push({ id: d.id, ...d.data() }));
                 window.historyLog = logs.sort((a, b) => b.timestamp_raw - a.timestamp_raw);
@@ -126,42 +126,42 @@
         window.saveInventoryCloud = async (mat, val) => {
             if (!window.currentUser) return;
             window.inventory[mat] = parseFloat(val) || 0;
-            await setDoc(doc(db, 'artifacts', window.appId, 'public', 'data', 'global', 'inventory'), window.inventory);
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'inventory'), window.inventory);
         };
 
         window.savePriceCloud = async (mat, val) => {
             if (!window.currentUser) return;
             window.prices[mat] = parseFloat(val) || 0;
-            await setDoc(doc(db, 'artifacts', window.appId, 'public', 'data', 'global', 'prices'), window.prices);
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'prices'), window.prices);
         };
 
         window.addRecipeCloud = async (name, data) => {
             if (!window.currentUser) return;
-            await setDoc(doc(db, 'artifacts', window.appId, 'public', 'data', 'recipes', name), data);
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'recipes', name), data);
         };
 
         window.deleteRecipeCloud = async (name) => {
             if (!window.currentUser) return;
-            await deleteDoc(doc(db, 'artifacts', window.appId, 'public', 'data', 'recipes', name));
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'recipes', name));
         };
 
         window.clearAllRecipesCloud = async () => {
             if (!window.currentUser) return;
             const batch = writeBatch(db);
-            Object.keys(window.recipes).forEach(name => batch.delete(doc(db, 'artifacts', window.appId, 'public', 'data', 'recipes', name)));
+            Object.keys(window.recipes).forEach(name => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'recipes', name)));
             await batch.commit();
         };
 
         window.addHistoryCloud = async (logData) => {
             if (!window.currentUser) return;
-            await addDoc(collection(db, 'artifacts', window.appId, 'public', 'data', 'history'), logData);
-            await setDoc(doc(db, 'artifacts', window.appId, 'public', 'data', 'global', 'inventory'), window.inventory);
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'history'), logData);
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'inventory'), window.inventory);
         };
 
         window.clearHistoryCloud = async () => {
             if (!window.currentUser) return;
             const batch = writeBatch(db);
-            window.historyLog.forEach(item => batch.delete(doc(db, 'artifacts', window.appId, 'public', 'data', 'history', item.id)));
+            window.historyLog.forEach(item => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'history', item.id)));
             await batch.commit();
         };
 
@@ -222,13 +222,43 @@
                 const matText = Object.entries(window.recipes[name]).map(([m, q]) => `<span class="inline-block bg-slate-900 border border-slate-700 px-2 py-0.5 rounded mr-1 mb-1 text-[10px] text-left">${m}: <b class="text-blue-400">${q}</b></span>`).join('');
                 return `<tr class="border-b border-slate-800 hover:bg-slate-800/30 transition-colors">
                     <td class="p-4 font-bold text-white uppercase text-xs text-left">${name}</td>
-                    <td class="p-4 text-emerald-400 font-mono text-xs font-bold">${window.formatCurrency(unitCost)}</td>
+                    <td class="p-4 text-emerald-400 font-mono text-xs font-bold text-center">${window.formatCurrency(unitCost)}</td>
                     <td class="p-4 text-left">${matText}</td>
                     <td class="p-4 text-center">
-                        <button onclick="askConfirm('Hapus resep ${name}?', () => window.deleteRecipeCloud('${name}'))" class="text-rose-500 hover:text-rose-300 p-2"><i class="fas fa-trash"></i></button>
+                        <div class="flex items-center justify-center gap-2">
+                            <button onclick="window.editRecipe('${name}')" class="text-blue-400 hover:text-blue-200 p-2" title="Edit Resep"><i class="fas fa-edit"></i></button>
+                            <button onclick="askConfirm('Hapus resep ${name}?', () => window.deleteRecipeCloud('${name}'))" class="text-rose-500 hover:text-rose-300 p-2" title="Hapus Resep"><i class="fas fa-trash"></i></button>
+                        </div>
                     </td>
                 </tr>`;
             }).join('');
+        };
+
+        // --- FUNGSI UPDATE/EDIT RESEP ---
+        window.editRecipe = (name) => {
+            const recipe = window.recipes[name];
+            if (!recipe) return;
+
+            // Berpindah ke tab produksi
+            window.switchTab('main');
+
+            // Isi nama produk
+            const nameInput = document.getElementById('product-name');
+            if (nameInput) nameInput.value = name;
+
+            // Reset semua input bahan ke 0 dulu
+            document.querySelectorAll('.recipe-input').forEach(i => i.value = "");
+
+            // Isi nilai bahan sesuai resep yang dipilih
+            Object.entries(recipe).forEach(([mat, qty]) => {
+                const input = document.querySelector(`.recipe-input[data-material="${mat}"]`);
+                if (input) input.value = qty;
+            });
+
+            window.showToast(`Mengedit resep: ${name}`, "bg-blue-600");
+            
+            // Scroll ke atas agar user melihat formulir
+            window.scrollTo({ top: 0, behavior: 'smooth' });
         };
 
         window.renderHistoryTable = () => {
@@ -257,11 +287,9 @@
             }).join('');
         };
 
-        // --- RENDER FORM INPUT BAHAN UNTUK RESEP ---
         window.renderRecipeInputs = () => {
             const container = document.getElementById('recipe-inputs');
             if (!container) return;
-            // Membersihkan isi sebelumnya agar tidak dobel
             container.innerHTML = window.BASE_MATERIALS.map(mat => `
                 <div class="flex flex-col bg-slate-900/50 p-2 rounded border border-slate-800">
                     <label class="text-slate-500 font-bold uppercase mb-1 text-[9px] text-center truncate">${mat}</label>
@@ -293,7 +321,7 @@
             let can = true;
             let unitCost = 0;
             let totalOrderCost = 0;
-            let html = `<h4 class="font-bold text-blue-300 mb-3 border-b border-slate-700 pb-2 text-xs flex justify-between">
+            let html = `<h4 class="font-bold text-blue-300 mb-3 border-b border-slate-700 pb-2 text-xs flex justify-between uppercase tracking-widest">
                 <span>Rincian Kalkulasi (${q}x)</span>
             </h4>`;
 
@@ -319,11 +347,11 @@
             html += `
             <div class="mt-4 space-y-2">
                 <div class="p-2 bg-slate-800/40 rounded border border-slate-700 flex justify-between items-center text-xs">
-                    <span class="text-slate-400 uppercase font-bold text-[9px]">HARGA MODAL / UNIT:</span>
+                    <span class="text-slate-400 uppercase font-bold text-[9px] tracking-widest">Harga Modal / Unit:</span>
                     <span class="text-emerald-300 font-bold">${window.formatCurrency(unitCost)}</span>
                 </div>
                 <div class="p-2 bg-slate-800 rounded border border-blue-500/30 flex justify-between items-center text-xs">
-                    <span class="text-blue-200 uppercase font-bold text-[9px]">TOTAL BIAYA PRODUKSI:</span>
+                    <span class="text-blue-200 uppercase font-bold text-[9px] tracking-widest">Total Biaya Produksi:</span>
                     <span class="text-emerald-400 font-bold text-sm">${window.formatCurrency(totalOrderCost)}</span>
                 </div>
             </div>`;
@@ -386,7 +414,7 @@
                         }
                     });
                     if(count > 0) {
-                        await setDoc(doc(db, 'artifacts', window.appId, 'public', 'data', 'global', 'prices'), newPrices);
+                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'prices'), newPrices);
                         window.showToast(`${count} Harga bahan berhasil diperbarui!`, "bg-emerald-600");
                     }
                 } catch (err) { alert("Gagal memproses file harga."); }
@@ -453,13 +481,12 @@
                 window.closeConfirm(); 
             };
 
-            // Recipe Form Submit (FIXED: Membaca input bahan dengan benar)
+            // Recipe Form Submit
             document.getElementById('recipe-form').onsubmit = async (e) => {
                 e.preventDefault();
                 const name = document.getElementById('product-name').value.trim().toUpperCase();
                 const req = {};
                 
-                // Cari semua input dengan class recipe-input yang baru saja dirender
                 document.querySelectorAll('.recipe-input').forEach(i => { 
                     const val = parseFloat(i.value) || 0;
                     if(val > 0) req[i.dataset.material] = val; 
@@ -525,7 +552,7 @@
         <!-- Header -->
         <header class="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
-                <h1 class="text-3xl font-bold text-blue-400 tracking-tight text-left"><i class="fas fa-tools mr-3"></i>Crafting System <span class="text-white font-light text-xl">v2.0</span></h1>
+                <h1 class="text-3xl font-bold text-blue-400 tracking-tight text-left italic"><i class="fas fa-hammer mr-3 text-white"></i>VK <span class="text-white font-light text-xl">CRAFTING SYSTEM v2.0</span></h1>
                 <p id="sync-status" class="text-slate-500 text-xs flex items-center mt-1 text-left uppercase font-bold tracking-widest">
                     <i class="fas fa-circle-notch fa-spin mr-2"></i>Menghubungkan ke layanan cloud...
                 </p>
@@ -542,30 +569,30 @@
         <div id="view-main" class="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
             <div class="lg:col-span-4 space-y-6">
                 <section class="glass-card p-6">
-                    <h2 class="text-xl font-bold mb-4 text-yellow-500 flex items-center justify-start uppercase text-sm tracking-widest"><i class="fas fa-warehouse mr-2"></i>Stok Inventaris</h2>
+                    <h2 class="text-xl font-bold mb-4 text-yellow-500 flex items-center justify-start uppercase text-sm tracking-widest"><i class="fas fa-warehouse mr-2 text-sm text-white"></i>Stok Inventaris</h2>
                     <div class="grid grid-cols-1 gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar" id="inventory-list"></div>
                 </section>
             </div>
             <div class="lg:col-span-8 space-y-6">
-                <!-- SEKSI BUAT RESEP PRODUK (FIXED UI) -->
+                <!-- SEKSI BUAT RESEP PRODUK -->
                 <section class="glass-card p-6 border-l-4 border-purple-500">
-                    <h2 class="text-xl font-bold mb-4 text-purple-400 flex items-center text-left uppercase text-sm tracking-widest"><i class="fas fa-edit mr-2"></i>Buat Resep Produk Baru</h2>
+                    <h2 class="text-xl font-bold mb-4 text-purple-400 flex items-center text-left uppercase text-sm tracking-widest"><i class="fas fa-edit mr-2 text-white"></i>Setup Resep Produk</h2>
                     <form id="recipe-form" class="space-y-4">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div class="flex flex-col">
-                                <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 tracking-widest">Nama Produk</label>
+                                <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 tracking-widest text-left">Nama Produk</label>
                                 <input type="text" id="product-name" placeholder="CONTOH: AK-47" required 
                                        class="bg-slate-800 border border-slate-700 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none uppercase font-bold text-blue-300 placeholder:text-slate-600 text-sm">
                             </div>
                             <div class="flex items-end">
-                                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 transition-colors p-3 rounded-lg font-bold flex items-center justify-center text-xs uppercase tracking-widest h-[52px]">
+                                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 transition-colors p-3 rounded-lg font-bold flex items-center justify-center text-xs uppercase tracking-widest h-[52px] shadow-lg">
                                     <i class="fas fa-save mr-2"></i>Simpan Resep
                                 </button>
                             </div>
                         </div>
                         
                         <div class="border-t border-slate-800 pt-4">
-                            <label class="text-slate-500 text-[10px] font-bold uppercase mb-3 block tracking-widest text-center">Input Jumlah Bahan yang Dibutuhkan</label>
+                            <label class="text-slate-500 text-[10px] font-bold uppercase mb-3 block tracking-widest text-center">Bahan yang Dibutuhkan untuk 1 Unit</label>
                             <!-- Inputs generated by window.renderRecipeInputs() -->
                             <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3" id="recipe-inputs"></div>
                         </div>
@@ -573,14 +600,14 @@
                 </section>
 
                 <section class="glass-card p-6 border-l-4 border-orange-500 text-left">
-                    <h2 class="text-xl font-bold mb-6 text-orange-400 flex items-center uppercase text-sm tracking-widest"><i class="fas fa-hammer mr-2"></i>Area Crafting</h2>
+                    <h2 class="text-xl font-bold mb-6 text-orange-400 flex items-center uppercase text-sm tracking-widest"><i class="fas fa-hammer mr-2 text-white"></i>Area Crafting</h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div>
-                            <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 block tracking-widest">Pilih Produk</label>
+                            <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 block tracking-widest text-left">Pilih Produk</label>
                             <select id="select-product" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 mb-4 focus:ring-2 focus:ring-orange-500 outline-none text-sm font-bold uppercase"></select>
                             
-                            <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 block tracking-widest">Jumlah Produksi</label>
-                            <input type="number" id="craft-quantity" value="1" min="1" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 mb-4 focus:ring-2 focus:ring-orange-500 outline-none font-bold">
+                            <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 block tracking-widest text-left">Jumlah Produksi</label>
+                            <input type="number" id="craft-quantity" value="1" min="1" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 mb-4 focus:ring-2 focus:ring-orange-500 outline-none font-bold text-center">
                             
                             <button id="btn-craft" class="w-full p-4 rounded-xl font-bold text-lg shadow-lg transition-all duration-300 transform active:scale-95 uppercase tracking-widest text-xs">PROSES CRAFTING</button>
                         </div>
@@ -605,7 +632,7 @@
                         <button onclick="window.exportToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 rounded-lg font-bold flex items-center shadow-lg transition-all uppercase tracking-widest">
                             <i class="fas fa-file-excel mr-2 text-sm"></i>Export Data
                         </button>
-                        <button onclick="window.askConfirm('APAKAH ANDA YAKIN INGIN MENGHAPUS SELURUH DATABASE RESEP?', window.doClearAll)" class="bg-rose-900/50 hover:bg-rose-800 text-rose-100 px-5 py-3 rounded-lg font-bold flex items-center transition-all border border-rose-500/30 uppercase tracking-widest">
+                        <button onclick="window.askConfirm('HAPUS SELURUH DATABASE RESEP?', window.doClearAll)" class="bg-rose-900/50 hover:bg-rose-800 text-rose-100 px-5 py-3 rounded-lg font-bold flex items-center transition-all border border-rose-500/30 uppercase tracking-widest">
                             <i class="fas fa-trash-alt mr-2 text-sm"></i>Hapus Semua
                         </button>
                     </div>
@@ -615,8 +642,8 @@
                         <thead>
                             <tr class="bg-slate-800/80 text-blue-300 text-[10px] font-black uppercase tracking-widest">
                                 <th class="p-5 border-b border-slate-700 text-left">Nama Produk</th>
-                                <th class="p-5 border-b border-slate-700">Modal / Unit</th>
-                                <th class="p-5 border-b border-slate-700">Komposisi Bahan</th>
+                                <th class="p-5 border-b border-slate-700 text-center">Modal / Unit</th>
+                                <th class="p-5 border-b border-slate-700 text-left">Komposisi Bahan</th>
                                 <th class="p-5 border-b border-slate-700 text-center">Aksi</th>
                             </tr>
                         </thead>
@@ -632,7 +659,7 @@
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
                     <div>
                         <h2 class="text-2xl font-black text-emerald-400 tracking-wider uppercase text-lg italic">Harga Pasar Bahan</h2>
-                        <p class="text-slate-400 text-xs mt-1">Perbarui harga material untuk kalkulasi modal yang akurat.</p>
+                        <p class="text-slate-400 text-xs mt-1 uppercase font-bold tracking-tighter">Perbarui harga material untuk kalkulasi modal yang akurat.</p>
                     </div>
                     <div class="flex gap-2 text-xs">
                         <input type="file" id="import-prices-input" accept=".xlsx, .xls, .csv" class="hidden">
@@ -657,7 +684,7 @@
                 <div class="overflow-x-auto custom-scrollbar">
                     <table class="w-full text-left border-collapse">
                         <thead>
-                            <tr class="bg-slate-800/80 text-orange-300 text-[10px] uppercase font-black tracking-widest">
+                            <tr class="bg-slate-800/80 text-orange-300 text-[10px] uppercase font-black tracking-widest text-center">
                                 <th class="p-5 border-b border-slate-700 text-left text-[10px]">Timestamp</th>
                                 <th class="p-5 border-b border-slate-700 text-left text-[10px]">Produk</th>
                                 <th class="p-5 border-b border-slate-700 text-center text-[10px]">Qty</th>
