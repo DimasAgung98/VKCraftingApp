@@ -578,11 +578,11 @@
             <div class="lg:col-span-8 space-y-6">
                 <!-- SEKSI BUAT RESEP PRODUK -->
                 <section class="glass-card p-6 border-l-4 border-purple-500">
-                    <h2 class="text-xl font-bold mb-4 text-purple-400 flex items-center text-left uppercase text-sm tracking-widest"><i class="fas fa-edit mr-2 text-white"></i>Setup Resep Produk</h2>
+                    <h2 class="text-xl font-bold mb-4 text-purple-400 flex items-center text-left uppercase text-sm tracking-widest"><i class="fas fa-edit mr-2 text-white"></i>Setup Bahan Crafting Senjata</h2>
                     <form id="recipe-form" class="space-y-4">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div class="flex flex-col">
-                                <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 tracking-widest text-left">Nama Produk</label>
+                                <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 tracking-widest text-left">Nama Senjata</label>
                                 <input type="text" id="product-name" placeholder="CONTOH: AK-47" required 
                                        class="bg-slate-800 border border-slate-700 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none uppercase font-bold text-blue-300 placeholder:text-slate-600 text-sm">
                             </div>
@@ -625,11 +625,11 @@
         <div id="view-database" class="hidden space-y-6 animate-fadeIn">
             <section class="glass-card p-6 border-t-4 border-blue-500">
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
-                    <h2 class="text-2xl font-black text-blue-400 tracking-wider text-left uppercase text-lg italic">Database Master Resep</h2>
+                    <h2 class="text-2xl font-black text-blue-400 tracking-wider text-left uppercase text-lg italic">Database Master Crafting</h2>
                     <div class="flex flex-wrap gap-2 text-xs">
                         <input type="file" id="import-excel-input" accept=".xlsx, .xls, .csv" class="hidden">
                         <button onclick="document.getElementById('import-excel-input').click()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-bold flex items-center shadow-lg transition-all uppercase tracking-widest">
-                            <i class="fas fa-file-import mr-2 text-sm"></i>Import Resep
+                            <i class="fas fa-file-import mr-2 text-sm"></i>Import Data
                         </button>
                         <button onclick="window.exportToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 rounded-lg font-bold flex items-center shadow-lg transition-all uppercase tracking-widest">
                             <i class="fas fa-file-excel mr-2 text-sm"></i>Export Data
@@ -643,7 +643,7 @@
                     <table class="w-full text-left border-collapse">
                         <thead>
                             <tr class="bg-slate-800/80 text-blue-300 text-[10px] font-black uppercase tracking-widest">
-                                <th class="p-5 border-b border-slate-700 text-left">Nama Produk</th>
+                                <th class="p-5 border-b border-slate-700 text-left">Nama Senjata</th>
                                 <th class="p-5 border-b border-slate-700 text-center">Modal / Unit</th>
                                 <th class="p-5 border-b border-slate-700 text-left">Komposisi Bahan</th>
                                 <th class="p-5 border-b border-slate-700 text-center">Aksi</th>
@@ -660,8 +660,8 @@
             <section class="glass-card p-6 border-t-4 border-emerald-500 text-left">
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
                     <div>
-                        <h2 class="text-2xl font-black text-emerald-400 tracking-wider uppercase text-lg italic">Harga Pasar Bahan</h2>
-                        <p class="text-slate-400 text-xs mt-1 uppercase font-bold tracking-tighter">Perbarui harga material untuk kalkulasi modal yang akurat.</p>
+                        <h2 class="text-2xl font-black text-emerald-400 tracking-wider uppercase text-lg italic">Harga Bahan Crafting</h2>
+                        <p class="text-slate-400 text-xs mt-1 uppercase font-bold tracking-tighter">Perbarui harga bahan bedasarkan harga disnaker.</p>
                     </div>
                     <div class="flex gap-2 text-xs">
                         <input type="file" id="import-prices-input" accept=".xlsx, .xls, .csv" class="hidden">
@@ -720,4 +720,5 @@
     </div>
 </body>
 </html>
+
 
