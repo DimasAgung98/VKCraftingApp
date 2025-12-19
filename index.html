@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crafting System - Vikrama Kulapati</title>
+    <title>Crafting System Pro v2.0 - Final Edition</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Library untuk Spreadsheet (Excel) -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    <!-- Library untuk Screenshot -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link rel="icon" href="https://i.ibb.co.com/W7ZhG2G/convertico-Hitam-Oranye-Lingkaran-Paguyuban-Kelas-Logo-32x32.png">
-
     
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -66,7 +66,7 @@
                         window.currentUser = user;
                         setupRealtimeListeners();
                         statusEl.innerHTML = `<i class="fas fa-circle text-emerald-500 mr-2"></i>Terhubung ke Cloud`;
-                        window.renderRecipeInputs(); // Pastikan form input bahan dirender
+                        window.renderRecipeInputs();
                     }
                 });
 
@@ -236,30 +236,18 @@
             }).join('');
         };
 
-        // --- FUNGSI UPDATE/EDIT RESEP ---
         window.editRecipe = (name) => {
             const recipe = window.recipes[name];
             if (!recipe) return;
-
-            // Berpindah ke tab produksi
             window.switchTab('main');
-
-            // Isi nama produk
             const nameInput = document.getElementById('product-name');
             if (nameInput) nameInput.value = name;
-
-            // Reset semua input bahan ke 0 dulu
             document.querySelectorAll('.recipe-input').forEach(i => i.value = "");
-
-            // Isi nilai bahan sesuai resep yang dipilih
             Object.entries(recipe).forEach(([mat, qty]) => {
                 const input = document.querySelector(`.recipe-input[data-material="${mat}"]`);
                 if (input) input.value = qty;
             });
-
             window.showToast(`Mengedit resep: ${name}`, "bg-blue-600");
-            
-            // Scroll ke atas agar user melihat formulir
             window.scrollTo({ top: 0, behavior: 'smooth' });
         };
 
@@ -323,9 +311,14 @@
             let can = true;
             let unitCost = 0;
             let totalOrderCost = 0;
-            let html = `<h4 class="font-bold text-blue-300 mb-3 border-b border-slate-700 pb-2 text-xs flex justify-between uppercase tracking-widest">
-                <span>Rincian Kalkulasi (${q}x)</span>
-            </h4>`;
+            let html = `
+                <div class="flex justify-between items-center mb-3 border-b border-slate-700 pb-2">
+                    <h4 class="font-bold text-blue-300 text-xs uppercase tracking-widest">Rincian Kalkulasi (${q}x)</h4>
+                    <button onclick="window.takeScreenshot('calculation-result', 'Kebutuhan_Crafting')" class="text-slate-400 hover:text-white transition-colors" title="Screenshot Kebutuhan">
+                        <i class="fas fa-camera text-sm"></i>
+                    </button>
+                </div>
+            `;
 
             Object.entries(window.recipes[p]).forEach(([mat, qty]) => {
                 const totalReq = qty * q;
@@ -362,6 +355,34 @@
             btn.disabled = !can;
             btn.innerHTML = can ? `<i class="fas fa-hammer mr-2"></i>PROSES CRAFTING` : `<i class="fas fa-times-circle mr-2"></i>STOK KURANG`;
             btn.className = `w-full p-4 rounded-xl font-bold transition-all duration-300 ${can ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20 shadow-lg scale-100' : 'bg-slate-700 cursor-not-allowed text-slate-400 opacity-50'}`;
+        };
+
+        // --- FITUR SCREENSHOT ---
+        window.takeScreenshot = async (elementId, fileName) => {
+            const element = document.getElementById(elementId);
+            if (!element) return;
+
+            window.showToast("Menyiapkan Gambar...", "bg-blue-600");
+            
+            try {
+                const canvas = await html2canvas(element, {
+                    backgroundColor: "#0f172a", // Samakan dengan bg body
+                    scale: 2, // Kualitas lebih tinggi
+                    logging: false,
+                    useCORS: true
+                });
+
+                const image = canvas.toDataURL("image/png");
+                const link = document.createElement("a");
+                link.href = image;
+                link.download = `${fileName}_${new Date().getTime()}.png`;
+                link.click();
+                
+                window.showToast("Gambar Berhasil Diunduh!", "bg-emerald-600");
+            } catch (error) {
+                console.error("Screenshot Error:", error);
+                window.showToast("Gagal mengambil gambar.", "bg-red-600");
+            }
         };
 
         // --- 7. EXCEL HANDLERS ---
@@ -438,7 +459,6 @@
             XLSX.writeFile(wb, "Crafting_Database.xlsx");
         };
 
-        // --- 8. MODALS & TOASTS ---
         window.askConfirm = (msg, action) => { 
             const modal = document.getElementById('confirm-modal');
             const textEl = document.getElementById('confirm-text');
@@ -467,42 +487,30 @@
             setTimeout(() => t.classList.add('hidden'), 3000); 
         }
 
-        // --- 9. DOM READY ---
         document.addEventListener('DOMContentLoaded', () => {
             initApp();
-            
-            // File input triggers
             document.getElementById('import-excel-input').onchange = window.handleImport;
             document.getElementById('import-prices-input').onchange = window.handlePriceImport;
-            
-            // Modal Button
             document.getElementById('confirm-btn-exec').onclick = async () => { 
                 if(typeof window.currentPendingAction === 'function') {
                     await window.currentPendingAction(); 
                 }
                 window.closeConfirm(); 
             };
-
-            // Recipe Form Submit
             document.getElementById('recipe-form').onsubmit = async (e) => {
                 e.preventDefault();
                 const name = document.getElementById('product-name').value.trim().toUpperCase();
                 const req = {};
-                
                 document.querySelectorAll('.recipe-input').forEach(i => { 
                     const val = parseFloat(i.value) || 0;
                     if(val > 0) req[i.dataset.material] = val; 
                 });
-                
                 if(!name) return window.showToast('Nama Produk wajib diisi!', "bg-red-600");
                 if(Object.keys(req).length === 0) return window.showToast('Isi minimal 1 bahan kebutuhan!', "bg-red-600");
-                
                 await window.addRecipeCloud(name, req);
                 e.target.reset();
                 window.showToast(`Resep ${name} berhasil disimpan!`, "bg-blue-600");
             };
-
-            // Craft Button
             document.getElementById('btn-craft').onclick = async () => {
                 const p = document.getElementById('select-product').value;
                 const q = parseInt(document.getElementById('craft-quantity').value) || 0;
@@ -549,7 +557,7 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
     </style>
 </head>
-<body class="p-4 md:p-8">
+<body class="p-4 md:p-8 text-center">
     <div class="max-w-7xl mx-auto">
         <!-- Header -->
         <header class="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
@@ -560,29 +568,35 @@
                 </p>
             </div>
             <nav class="flex flex-wrap gap-4 md:gap-8 overflow-x-auto no-scrollbar pb-2 md:pb-0">
-                <button onclick="window.switchTab('main')" id="btn-tab-main" class="tab-active font-semibold py-2 px-1 whitespace-nowrap transition-all uppercase text-xs tracking-widest">Produksi</button>
-                <button onclick="window.switchTab('database')" id="btn-tab-database" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap uppercase text-xs tracking-widest">Database Master</button>
-                <button onclick="window.switchTab('prices')" id="btn-tab-prices" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap uppercase text-xs tracking-widest">Harga Bahan</button>
-                <button onclick="window.switchTab('history')" id="btn-tab-history" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap uppercase text-xs tracking-widest">Log Transaksi</button>
+                <button onclick="window.switchTab('main')" id="btn-tab-main" class="tab-active font-semibold py-2 px-1 whitespace-nowrap transition-all uppercase text-xs tracking-widest"><i class="fas fa-box mr-2"></i>Produksi</button>
+                <button onclick="window.switchTab('database')" id="btn-tab-database" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap uppercase text-xs tracking-widest"><i class="fas fa-database mr-2"></i>Database Master</button>
+                <button onclick="window.switchTab('prices')" id="btn-tab-prices" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap uppercase text-xs tracking-widest"><i class="fas fa-tag mr-2"></i>Harga Bahan</button>
+                <button onclick="window.switchTab('history')" id="btn-tab-history" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap uppercase text-xs tracking-widest"><i class="fas fa-history mr-2"></i>Log Transaksi</button>
             </nav>
         </header>
 
         <!-- VIEW 1: PRODUKSI & STOK -->
         <div id="view-main" class="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
             <div class="lg:col-span-4 space-y-6">
-                <section class="glass-card p-6">
-                    <h2 class="text-xl font-bold mb-4 text-yellow-500 flex items-center justify-start uppercase text-sm tracking-widest"><i class="fas fa-warehouse mr-2 text-sm text-white"></i>Stok Inventaris</h2>
-                    <div class="grid grid-cols-1 gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar" id="inventory-list"></div>
+                <!-- INVENTORY SECTION WITH SCREENSHOT -->
+                <section class="glass-card p-6" id="inventory-screenshot-area">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold text-yellow-500 flex items-center uppercase text-sm tracking-widest"><i class="fas fa-warehouse mr-2 text-white"></i>Stok Inventaris</h2>
+                        <button onclick="window.takeScreenshot('inventory-screenshot-area', 'Sisa_Stok_Gudang')" class="bg-slate-800 hover:bg-slate-700 p-2 rounded-lg text-slate-400 hover:text-white transition-all" title="Screenshot Stok">
+                            <i class="fas fa-camera"></i>
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-1 gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar text-center" id="inventory-list"></div>
                 </section>
             </div>
             <div class="lg:col-span-8 space-y-6">
                 <!-- SEKSI BUAT RESEP PRODUK -->
-                <section class="glass-card p-6 border-l-4 border-purple-500">
-                    <h2 class="text-xl font-bold mb-4 text-purple-400 flex items-center text-left uppercase text-sm tracking-widest"><i class="fas fa-edit mr-2 text-white"></i>Setup Bahan Crafting Senjata</h2>
+                <section class="glass-card p-6 border-l-4 border-purple-500 text-left">
+                    <h2 class="text-xl font-bold mb-4 text-purple-400 flex items-center uppercase text-sm tracking-widest"><i class="fas fa-edit mr-2 text-white"></i>Setup Resep Produk</h2>
                     <form id="recipe-form" class="space-y-4">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                            <div class="flex flex-col">
-                                <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 tracking-widest text-left">Nama Senjata</label>
+                            <div class="flex flex-col text-left">
+                                <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 tracking-widest">Nama Produk</label>
                                 <input type="text" id="product-name" placeholder="CONTOH: AK-47" required 
                                        class="bg-slate-800 border border-slate-700 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none uppercase font-bold text-blue-300 placeholder:text-slate-600 text-sm">
                             </div>
@@ -595,12 +609,12 @@
                         
                         <div class="border-t border-slate-800 pt-4">
                             <label class="text-slate-500 text-[10px] font-bold uppercase mb-3 block tracking-widest text-center">Bahan yang Dibutuhkan untuk 1 Unit</label>
-                            <!-- Inputs generated by window.renderRecipeInputs() -->
-                            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3" id="recipe-inputs"></div>
+                            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 text-center" id="recipe-inputs"></div>
                         </div>
                     </form>
                 </section>
 
+                <!-- CRAFTING AREA WITH SCREENSHOT -->
                 <section class="glass-card p-6 border-l-4 border-orange-500 text-left">
                     <h2 class="text-xl font-bold mb-6 text-orange-400 flex items-center uppercase text-sm tracking-widest"><i class="fas fa-hammer mr-2 text-white"></i>Area Crafting</h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -613,6 +627,7 @@
                             
                             <button id="btn-craft" class="w-full p-4 rounded-xl font-bold text-lg shadow-lg transition-all duration-300 transform active:scale-95 uppercase tracking-widest text-xs">PROSES CRAFTING</button>
                         </div>
+                        <!-- Area Rincian yang bisa di screenshot -->
                         <div id="calculation-result" class="bg-slate-900/50 rounded-xl p-4 border border-slate-700 min-h-[150px]">
                             <div id="cost-details" class="space-y-2 text-sm"></div>
                         </div>
@@ -625,16 +640,16 @@
         <div id="view-database" class="hidden space-y-6 animate-fadeIn">
             <section class="glass-card p-6 border-t-4 border-blue-500">
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
-                    <h2 class="text-2xl font-black text-blue-400 tracking-wider text-left uppercase text-lg italic">Database Master Crafting</h2>
+                    <h2 class="text-2xl font-black text-blue-400 tracking-wider text-left uppercase text-lg italic">Database Master Resep</h2>
                     <div class="flex flex-wrap gap-2 text-xs">
                         <input type="file" id="import-excel-input" accept=".xlsx, .xls, .csv" class="hidden">
                         <button onclick="document.getElementById('import-excel-input').click()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-bold flex items-center shadow-lg transition-all uppercase tracking-widest">
-                            <i class="fas fa-file-import mr-2 text-sm"></i>Import Data
+                            <i class="fas fa-file-import mr-2 text-sm"></i>Import Resep
                         </button>
                         <button onclick="window.exportToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 rounded-lg font-bold flex items-center shadow-lg transition-all uppercase tracking-widest">
                             <i class="fas fa-file-excel mr-2 text-sm"></i>Export Data
                         </button>
-                        <button onclick="window.askConfirm('HAPUS SELURUH DATABASE RESEP?', window.doClearAll)" class="bg-rose-900/50 hover:bg-rose-800 text-rose-100 px-5 py-3 rounded-lg font-bold flex items-center transition-all border border-rose-500/30 uppercase tracking-widest">
+                        <button onclick="window.askConfirm('APAKAH ANDA YAKIN INGIN MENGHAPUS SELURUH DATABASE RESEP?', window.doClearAll)" class="bg-rose-900/50 hover:bg-rose-800 text-rose-100 px-5 py-3 rounded-lg font-bold flex items-center transition-all border border-rose-500/30 uppercase tracking-widest">
                             <i class="fas fa-trash-alt mr-2 text-sm"></i>Hapus Semua
                         </button>
                     </div>
@@ -643,7 +658,7 @@
                     <table class="w-full text-left border-collapse">
                         <thead>
                             <tr class="bg-slate-800/80 text-blue-300 text-[10px] font-black uppercase tracking-widest">
-                                <th class="p-5 border-b border-slate-700 text-left">Nama Senjata</th>
+                                <th class="p-5 border-b border-slate-700 text-left">Nama Produk</th>
                                 <th class="p-5 border-b border-slate-700 text-center">Modal / Unit</th>
                                 <th class="p-5 border-b border-slate-700 text-left">Komposisi Bahan</th>
                                 <th class="p-5 border-b border-slate-700 text-center">Aksi</th>
@@ -660,8 +675,8 @@
             <section class="glass-card p-6 border-t-4 border-emerald-500 text-left">
                 <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
                     <div>
-                        <h2 class="text-2xl font-black text-emerald-400 tracking-wider uppercase text-lg italic">Harga Bahan Crafting</h2>
-                        <p class="text-slate-400 text-xs mt-1 uppercase font-bold tracking-tighter">Perbarui harga bahan bedasarkan harga disnaker.</p>
+                        <h2 class="text-2xl font-black text-emerald-400 tracking-wider uppercase text-lg italic">Harga Pasar Bahan</h2>
+                        <p class="text-slate-400 text-xs mt-1 uppercase font-bold tracking-tighter">Perbarui harga material untuk kalkulasi modal yang akurat.</p>
                     </div>
                     <div class="flex gap-2 text-xs">
                         <input type="file" id="import-prices-input" accept=".xlsx, .xls, .csv" class="hidden">
@@ -670,7 +685,7 @@
                         </button>
                     </div>
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" id="price-setup-list"></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-center" id="price-setup-list"></div>
             </section>
         </div>
 
@@ -684,9 +699,9 @@
                     </button>
                 </div>
                 <div class="overflow-x-auto custom-scrollbar">
-                    <table class="w-full text-left border-collapse">
+                    <table class="w-full text-left border-collapse text-center">
                         <thead>
-                            <tr class="bg-slate-800/80 text-orange-300 text-[10px] uppercase font-black tracking-widest text-center">
+                            <tr class="bg-slate-800/80 text-orange-300 text-[10px] uppercase font-black tracking-widest">
                                 <th class="p-5 border-b border-slate-700 text-left text-[10px]">Timestamp</th>
                                 <th class="p-5 border-b border-slate-700 text-left text-[10px]">Produk</th>
                                 <th class="p-5 border-b border-slate-700 text-center text-[10px]">Qty</th>
@@ -702,7 +717,7 @@
 
         <!-- MODAL KONFIRMASI -->
         <div id="confirm-modal" class="hidden fixed inset-0 bg-black/90 backdrop-blur-md z-[100] items-center justify-center p-4">
-            <div class="bg-slate-900 border border-slate-700 p-8 rounded-2xl max-w-sm w-full shadow-2xl transform transition-all">
+            <div class="bg-slate-900 border border-slate-700 p-8 rounded-2xl max-w-sm w-full shadow-2xl transform transition-all text-center">
                 <div class="flex justify-center mb-4 text-rose-500 text-5xl">
                     <i class="fas fa-exclamation-circle"></i>
                 </div>
@@ -720,5 +735,3 @@
     </div>
 </body>
 </html>
-
-
