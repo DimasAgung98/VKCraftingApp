@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crafting System Pro v2.0 - Final Edition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Library untuk Spreadsheet (Excel) -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, addDoc, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // --- 1. KONFIGURASI FIREBASE ---
+        // GANTI DATA DI BAWAH DENGAN CONFIG DARI FIREBASE CONSOLE ANDA
+        const myFirebaseConfig = {
+            apiKey: "AIzaSyAA-g_gti9pR5mE3l39Hw_erLVMcNZQZXw",
+  authDomain: "craftingvksystem.firebaseapp.com",
+  projectId: "craftingvksystem",
+  storageBucket: "craftingvksystem.firebasestorage.app",
+  messagingSenderId: "316301695602",
+  appId: "1:316301695602:web:8cda32be26afd3b676c0eb"
+        };
+
+        // --- 2. STATE APLIKASI ---
+        let db, auth, appId;
+        window.BASE_MATERIALS = ["BLUEPRINT", "GUNPOWDER", "TEMBAGA", "BESI", "PLASTIK", "GLASS", "ALUMUNIUM", "DIAMOND", "EMAS", "METAL SCRAP", "PAKET KAYU", "STEEL"];
+        window.inventory = {};
+        window.recipes = {};
+        window.prices = {};
+        window.historyLog = [];
+        window.currentUser = null;
+        let pendingAction = null;
+
+        // --- 3. INITIALIZATION & AUTH ---
+        const initApp = async () => {
+            const statusEl = document.getElementById('sync-status');
+            try {
+                const configStr = typeof __firebase_config !== 'undefined' ? __firebase_config : JSON.stringify(myFirebaseConfig);
+                const finalConfig = JSON.parse(configStr);
+                appId = typeof __app_id !== 'undefined' ? __app_id : 'crafting-app-final';
+
+                if (!finalConfig.apiKey) {
+                    statusEl.innerHTML = `<i class="fas fa-exclamation-triangle text-yellow-500 mr-2"></i>Mode Demo (Belum Setup Firebase)`;
+                    setupDefaultData();
+                    return;
+                }
+
+                const app = initializeApp(finalConfig);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                // Auth Rule 3: Sign in first
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        window.currentUser = user;
+                        setupRealtimeListeners();
+                        statusEl.innerHTML = `<i class="fas fa-circle text-emerald-500 mr-2"></i>Terhubung ke Cloud`;
+                    }
+                });
+
+            } catch (error) {
+                console.error("Init Error:", error);
+                statusEl.innerHTML = `<i class="fas fa-times-circle text-rose-500 mr-2"></i>Koneksi Cloud Gagal`;
+                setupDefaultData();
+            }
+        };
+
+        function setupDefaultData() {
+            window.BASE_MATERIALS.forEach(m => {
+                window.inventory[m] = 0;
+                window.prices[m] = 0;
+            });
+            renderInventory();
+            renderPriceSetup();
+            renderRecipeInputs();
+        }
+
+        // --- 4. FIRESTORE REALTIME SYNC ---
+        function setupRealtimeListeners() {
+            if (!window.currentUser) return;
+
+            // Sync Inventory
+            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'inventory'), (snap) => {
+                if (snap.exists()) { window.inventory = snap.data(); renderInventory(); calculateNeeded(); }
+                else { setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'inventory'), Object.fromEntries(window.BASE_MATERIALS.map(m => [m, 0]))); }
+            }, (err) => console.error(err));
+
+            // Sync Prices
+            onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'prices'), (snap) => {
+                if (snap.exists()) { window.prices = snap.data(); renderPriceSetup(); renderInventory(); }
+                else { setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'prices'), Object.fromEntries(window.BASE_MATERIALS.map(m => [m, 0]))); }
+            }, (err) => console.error(err));
+
+            // Sync Recipes
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'recipes'), (snap) => {
+                const newRecipes = {};
+                snap.forEach(d => newRecipes[d.id] = d.data());
+                window.recipes = newRecipes;
+                renderDatabaseTable();
+                updateProductDropdown();
+            });
+
+            // Sync History
+            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'history'), (snap) => {
+                const logs = [];
+                snap.forEach(d => logs.push({ id: d.id, ...d.data() }));
+                window.historyLog = logs.sort((a, b) => b.timestamp_raw - a.timestamp_raw);
+                renderHistoryTable();
+            });
+        }
+
+        // --- 5. EXPOSED CLOUD FUNCTIONS ---
+        window.saveInventoryCloud = async (mat, val) => {
+            if (!window.currentUser) return;
+            const updated = { ...window.inventory, [mat]: parseFloat(val) || 0 };
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'inventory'), updated);
+        };
+
+        window.savePriceCloud = async (mat, val) => {
+            if (!window.currentUser) return;
+            const updated = { ...window.prices, [mat]: parseFloat(val) || 0 };
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'prices'), updated);
+        };
+
+        window.addRecipeCloud = async (name, data) => {
+            if (!window.currentUser) return;
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'recipes', name), data);
+        };
+
+        window.deleteRecipeCloud = async (name) => {
+            if (!window.currentUser) return;
+            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'recipes', name));
+        };
+
+        window.clearAllRecipesCloud = async () => {
+            if (!window.currentUser) return;
+            const batch = writeBatch(db);
+            Object.keys(window.recipes).forEach(name => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'recipes', name)));
+            await batch.commit();
+        };
+
+        window.addHistoryCloud = async (logData) => {
+            if (!window.currentUser) return;
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'history'), logData);
+            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'inventory'), window.inventory);
+        };
+
+        window.clearHistoryCloud = async () => {
+            if (!window.currentUser) return;
+            const batch = writeBatch(db);
+            window.historyLog.forEach(item => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'history', item.id)));
+            await batch.commit();
+        };
+
+        // --- 6. RENDER & UI LOGIC ---
+        function formatCurrency(num) {
+            return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num || 0);
+        }
+
+        window.switchTab = (view) => {
+            ['main', 'database', 'prices', 'history'].forEach(v => {
+                document.getElementById(`view-${v}`).classList.toggle('hidden', view !== v);
+                const btn = document.getElementById(`btn-tab-${v}`);
+                if (btn) btn.className = view === v ? 'tab-active font-semibold py-2 px-1 transition-all' : 'font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all';
+            });
+        };
+
+        window.renderInventory = () => {
+            const container = document.getElementById('inventory-list');
+            if (!container) return;
+            container.innerHTML = window.BASE_MATERIALS.map(mat => `
+                <div class="flex items-center justify-between bg-slate-800/50 p-3 rounded-lg border border-slate-700 group hover:border-blue-500/50 transition-all">
+                    <div class="flex flex-col">
+                        <span class="text-sm font-semibold text-slate-300">${mat}</span>
+                        <span class="text-[10px] text-slate-500 font-mono">${formatCurrency(window.prices[mat])}/unit</span>
+                    </div>
+                    <input type="number" step="any" value="${window.inventory[mat] || 0}" 
+                        onchange="window.saveInventoryCloud('${mat}', this.value)" 
+                        class="w-24 bg-slate-900 text-right p-1 rounded border border-slate-700 text-blue-400 font-bold outline-none focus:border-blue-500">
+                </div>
+            `).join('');
+        };
+
+        window.renderPriceSetup = () => {
+            const container = document.getElementById('price-setup-list');
+            if (!container) return;
+            container.innerHTML = window.BASE_MATERIALS.map(mat => `
+                <div class="bg-slate-800/40 border border-slate-700 p-4 rounded-xl flex flex-col gap-2">
+                    <span class="text-sm font-bold text-emerald-400">${mat}</span>
+                    <div class="flex items-center gap-2 bg-slate-900 rounded-lg p-1 border border-slate-600 focus-within:border-emerald-500">
+                        <span class="pl-2 text-slate-500 text-xs font-bold">Rp</span>
+                        <input type="number" value="${window.prices[mat] || 0}" 
+                            onchange="window.savePriceCloud('${mat}', this.value)" 
+                            class="w-full bg-transparent text-right p-1 text-white font-mono outline-none text-sm">
+                    </div>
+                </div>
+            `).join('');
+        };
+
+        window.renderDatabaseTable = () => {
+            const tbody = document.getElementById('db-table-body');
+            if (!tbody) return;
+            const keys = Object.keys(window.recipes).sort();
+            if(keys.length === 0) { tbody.innerHTML = `<tr><td colspan="4" class="p-10 text-center text-slate-500 italic text-sm">Database belum terisi.</td></tr>`; return; }
+            tbody.innerHTML = keys.map(name => {
+                let unitCost = 0;
+                Object.entries(window.recipes[name]).forEach(([m, q]) => unitCost += (q * (window.prices[m] || 0)));
+                const matText = Object.entries(window.recipes[name]).map(([m, q]) => `<span class="inline-block bg-slate-900 border border-slate-700 px-2 py-0.5 rounded mr-1 mb-1 text-[10px]">${m}: <b class="text-blue-400">${q}</b></span>`).join('');
+                return `<tr class="border-b border-slate-800 hover:bg-slate-800/30 transition-colors">
+                    <td class="p-4 font-bold text-white uppercase text-xs">${name}</td>
+                    <td class="p-4 text-emerald-400 font-mono text-xs font-bold">${formatCurrency(unitCost)}</td>
+                    <td class="p-4">${matText}</td>
+                    <td class="p-4 text-center">
+                        <button onclick="askConfirm('Hapus resep ${name}?', () => window.deleteRecipeCloud('${name}'))" class="text-rose-500 hover:text-rose-300 p-2"><i class="fas fa-trash"></i></button>
+                    </td>
+                </tr>`;
+            }).join('');
+        };
+
+        window.renderHistoryTable = () => {
+            const tbody = document.getElementById('history-table-body');
+            if (!tbody) return;
+            if (window.historyLog.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-slate-500 italic text-xs">Belum ada riwayat transaksi.</td></tr>`;
+                return;
+            }
+            tbody.innerHTML = window.historyLog.map(log => {
+                const matSummary = log.materialsUsed.map(m => `
+                    <div class="flex justify-between gap-4 text-[10px] border-b border-slate-700/30 last:border-0 pb-0.5 mb-0.5">
+                        <span class="text-slate-400">${m.name}</span>
+                        <span class="text-orange-300 font-bold">${m.qty.toFixed(1)}</span>
+                    </div>
+                `).join('');
+                return `
+                    <tr class="border-b border-slate-800 hover:bg-slate-800/20 transition-colors align-top">
+                        <td class="p-4 text-slate-500 text-[9px] whitespace-nowrap">${log.timestamp}</td>
+                        <td class="p-4 font-bold text-blue-300 uppercase text-xs">${log.productName}</td>
+                        <td class="p-4 font-bold text-xs">${log.productQty}x</td>
+                        <td class="p-4 max-w-xs">${matSummary}</td>
+                        <td class="p-4 text-emerald-400 font-mono font-bold whitespace-nowrap text-xs">${formatCurrency(log.totalCost)}</td>
+                    </tr>
+                `;
+            }).join('');
+        };
+
+        window.renderRecipeInputs = () => {
+            const container = document.getElementById('recipe-inputs');
+            if (!container) return;
+            container.innerHTML = window.BASE_MATERIALS.map(mat => `
+                <div class="flex flex-col"><label class="text-slate-500 font-bold uppercase mb-1 text-[9px]">${mat}</label>
+                <input type="number" step="any" min="0" data-material="${mat}" class="recipe-input bg-slate-900 border border-slate-800 rounded p-2 focus:ring-1 focus:ring-purple-500 outline-none text-xs"></div>
+            `).join('');
+        };
+
+        window.updateProductDropdown = () => {
+            const select = document.getElementById('select-product');
+            if (!select) return;
+            const current = select.value;
+            select.innerHTML = '<option value="">-- Pilih Produk --</option>' + 
+                Object.keys(window.recipes).sort().map(n => `<option value="${n}" ${n === current ? 'selected' : ''}>${n}</option>`).join('');
+        };
+
+        window.calculateNeeded = () => {
+            const p = document.getElementById('select-product')?.value;
+            const q = parseInt(document.getElementById('craft-quantity')?.value) || 0;
+            const det = document.getElementById('cost-details');
+            const btn = document.getElementById('btn-craft');
+            if(!p || q <= 0 || !det || !btn) {
+                if(det) det.innerHTML = '<p class="text-slate-500 italic text-center py-10 text-xs">Pilih produk & tentukan jumlah pesanan.</p>';
+                if(btn) { btn.disabled = true; btn.className = "w-full p-4 rounded-xl font-bold bg-slate-700 cursor-not-allowed text-slate-400"; }
+                return;
+            }
+            
+            let can = true;
+            let totalOrderCost = 0;
+            let html = `<h4 class="font-bold text-blue-300 mb-3 border-b border-slate-700 pb-2 text-xs flex justify-between">
+                <span>Rincian Kalkulasi (${q}x)</span>
+            </h4>`;
+
+            Object.entries(window.recipes[p]).forEach(([mat, qty]) => {
+                const totalReq = qty * q;
+                const available = window.inventory[mat] || 0;
+                totalOrderCost += (totalReq * (window.prices[mat] || 0));
+                if(available < totalReq) can = false;
+                
+                html += `
+                    <div class="flex flex-col mb-2 border-b border-slate-800/50 pb-1">
+                        <div class="flex justify-between items-center text-[11px]">
+                            <span class="text-slate-300">${mat}</span>
+                            <span class="${available < totalReq ? 'text-rose-500' : 'text-emerald-400'} font-bold">${totalReq.toFixed(1)} / ${available.toFixed(1)}</span>
+                        </div>
+                    </div>`;
+            });
+
+            html += `<div class="mt-4 p-2 bg-slate-800 rounded border border-blue-500/30 flex justify-between items-center text-xs">
+                <span class="text-blue-200 uppercase font-bold text-[9px]">TOTAL BIAYA:</span>
+                <span class="text-emerald-400 font-bold text-sm">${formatCurrency(totalOrderCost)}</span>
+            </div>`;
+
+            det.innerHTML = html;
+            btn.disabled = !can;
+            btn.innerHTML = can ? `<i class="fas fa-hammer mr-2"></i>CRAFT SEKARANG` : `<i class="fas fa-times-circle mr-2"></i>STOK KURANG`;
+            btn.className = `w-full p-4 rounded-xl font-bold transition-all duration-300 ${can ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20 shadow-lg' : 'bg-slate-700 cursor-not-allowed text-slate-400 opacity-50'}`;
+        };
+
+        // --- 7. EXCEL HANDLERS ---
+        window.handleImport = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const wb = XLSX.read(data, { type: 'array' });
+                    const jsonData = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+                    let count = 0;
+                    
+                    const batchData = {};
+                    jsonData.forEach(row => {
+                        const pName = (row["Nama Produk"] || row["Produk"] || row["Product"] || "").toString().trim().toUpperCase();
+                        const mName = (row["Nama Bahan"] || row["Bahan"] || row["Material"] || "").toString().trim().toUpperCase();
+                        const qty = parseFloat(row["Jumlah"] || row["Kebutuhan"] || row["Qty"] || 0);
+                        
+                        if (pName && mName && qty > 0 && window.BASE_MATERIALS.includes(mName)) {
+                            if (!batchData[pName]) batchData[pName] = {};
+                            batchData[pName][mName] = qty;
+                        }
+                    });
+
+                    for (const [name, data] of Object.entries(batchData)) {
+                        await window.addRecipeCloud(name, data);
+                        count++;
+                    }
+                    showToast(`${count} Produk berhasil di-import ke database!`, "bg-blue-600");
+                } catch (err) { alert("Terjadi kesalahan saat membaca file Excel."); }
+            };
+            reader.readAsArrayBuffer(file);
+            event.target.value = "";
+        };
+
+        window.handlePriceImport = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const wb = XLSX.read(data, { type: 'array' });
+                    const jsonData = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+                    const newPrices = { ...window.prices };
+                    let count = 0;
+                    
+                    jsonData.forEach(row => {
+                        const mName = (row["Nama Bahan"] || row["Bahan"] || row["Material"] || "").toString().trim().toUpperCase();
+                        const pValue = parseFloat(row["Harga Bahan"] || row["Harga"] || row["Price"] || 0);
+                        if (mName && pValue >= 0 && window.BASE_MATERIALS.includes(mName)) {
+                            newPrices[mName] = pValue;
+                            count++;
+                        }
+                    });
+                    
+                    if(count > 0) {
+                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'prices'), newPrices);
+                        showToast(`${count} Harga bahan diperbarui secara massal!`, "bg-emerald-600");
+                    }
+                } catch (err) { alert("Gagal memproses file harga."); }
+            };
+            reader.readAsArrayBuffer(file);
+            event.target.value = "";
+        };
+
+        window.exportToExcel = () => {
+            const data = [];
+            Object.keys(window.recipes).sort().forEach(p => {
+                Object.entries(window.recipes[p]).forEach(([mat, qty]) => {
+                    data.push({ "Nama Produk": p, "Nama Bahan": mat, "Jumlah": qty });
+                });
+            });
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Database Resep");
+            XLSX.writeFile(wb, "Crafting_Database.xlsx");
+        };
+
+        // --- 8. MODALS & TOASTS ---
+        window.askConfirm = (msg, action) => { 
+            document.getElementById('confirm-text').innerText = msg; 
+            document.getElementById('confirm-modal').classList.remove('hidden'); 
+            document.getElementById('confirm-modal').classList.add('flex'); 
+            pendingAction = action; 
+        };
+        window.closeConfirm = () => { 
+            document.getElementById('confirm-modal').classList.add('hidden'); 
+            document.getElementById('confirm-modal').classList.remove('flex'); 
+            pendingAction = null; 
+        };
+        function showToast(text, color) { 
+            const t = document.getElementById('toast'); 
+            if(!t) return;
+            t.innerText = text; 
+            t.className = `fixed bottom-10 left-1/2 -translate-x-1/2 px-6 py-3 rounded-full shadow-2xl z-50 transition-all duration-300 text-white font-bold text-sm ${color}`; 
+            t.classList.remove('hidden'); 
+            setTimeout(() => t.classList.add('hidden'), 3000); 
+        }
+
+        // --- 9. DOM READY ---
+        document.addEventListener('DOMContentLoaded', () => {
+            initApp();
+            
+            // Assign event listeners
+            document.getElementById('import-excel-input').onchange = window.handleImport;
+            document.getElementById('import-prices-input').onchange = window.handlePriceImport;
+            document.getElementById('confirm-btn-exec').onclick = async () => { if(pendingAction) await pendingAction(); window.closeConfirm(); };
+
+            document.getElementById('recipe-form').onsubmit = async (e) => {
+                e.preventDefault();
+                const name = document.getElementById('product-name').value.trim().toUpperCase();
+                const req = {};
+                document.querySelectorAll('.recipe-input').forEach(i => { if(i.value > 0) req[i.dataset.material] = parseFloat(i.value); });
+                if(Object.keys(req).length === 0) return showToast('Isi minimal 1 bahan kebutuhan!', "bg-red-600");
+                await window.addRecipeCloud(name, req);
+                e.target.reset();
+                showToast(`Resep ${name} berhasil disimpan!`, "bg-blue-600");
+            };
+
+            document.getElementById('btn-craft').onclick = async () => {
+                const p = document.getElementById('select-product').value;
+                const q = parseInt(document.getElementById('craft-quantity').value) || 0;
+                if(!p || q <= 0) return;
+
+                const usedMaterials = [];
+                let currentTotalCost = 0;
+                Object.entries(window.recipes[p]).forEach(([mat, qty]) => {
+                    const totalUsed = qty * q;
+                    window.inventory[mat] -= totalUsed;
+                    usedMaterials.push({ name: mat, qty: totalUsed });
+                    currentTotalCost += (totalUsed * (window.prices[mat] || 0));
+                });
+
+                const now = new Date();
+                await window.addHistoryCloud({
+                    timestamp_raw: Date.now(),
+                    timestamp: now.toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }),
+                    productName: p,
+                    productQty: q,
+                    materialsUsed: usedMaterials,
+                    totalCost: currentTotalCost
+                });
+                showToast(`Proses Crafting ${q}x ${p} berhasil!`, "bg-emerald-600");
+            };
+
+            document.getElementById('select-product').onchange = window.calculateNeeded;
+            document.getElementById('craft-quantity').oninput = window.calculateNeeded;
+        });
+
+        // Global helpers
+        window.doClearAll = async () => { await window.clearAllRecipesCloud(); showToast("Seluruh database telah dibersihkan!", "bg-rose-600"); };
+        window.doClearHistory = async () => { await window.clearHistoryCloud(); showToast("Riwayat transaksi dikosongkan!", "bg-rose-600"); };
+
+    </script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; overflow-x: hidden; }
+        .glass-card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 1rem; }
+        .tab-active { border-bottom: 3px solid #60a5fa; color: #60a5fa; }
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-7xl mx-auto">
+        <!-- Header -->
+        <header class="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+            <div>
+                <h1 class="text-3xl font-bold text-blue-400 tracking-tight"><i class="fas fa-tools mr-3"></i>Crafting System <span class="text-white font-light text-xl">v2.0</span></h1>
+                <p id="sync-status" class="text-slate-500 text-xs flex items-center mt-1">
+                    <i class="fas fa-circle-notch fa-spin mr-2"></i>Menghubungkan ke layanan cloud...
+                </p>
+            </div>
+            <nav class="flex flex-wrap gap-4 md:gap-8 overflow-x-auto no-scrollbar pb-2 md:pb-0">
+                <button onclick="switchTab('main')" id="btn-tab-main" class="tab-active font-semibold py-2 px-1 whitespace-nowrap transition-all">Produksi</button>
+                <button onclick="switchTab('database')" id="btn-tab-db" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap">Database Resep</button>
+                <button onclick="switchTab('prices')" id="btn-tab-prices" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap">Harga Bahan</button>
+                <button onclick="switchTab('history')" id="btn-tab-history" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap">Riwayat Transaksi</button>
+            </nav>
+        </header>
+
+        <!-- VIEW 1: PRODUKSI & STOK -->
+        <div id="view-main" class="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
+            <div class="lg:col-span-4 space-y-6">
+                <section class="glass-card p-6">
+                    <h2 class="text-xl font-bold mb-4 text-yellow-500 flex items-center"><i class="fas fa-warehouse mr-2"></i>Stok Inventaris</h2>
+                    <div class="grid grid-cols-1 gap-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar" id="inventory-list"></div>
+                </section>
+            </div>
+            <div class="lg:col-span-8 space-y-6">
+                <section class="glass-card p-6 border-l-4 border-purple-500">
+                    <h2 class="text-xl font-bold mb-4 text-purple-400 flex items-center"><i class="fas fa-edit mr-2"></i>Buat Resep Produk</h2>
+                    <form id="recipe-form" class="space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <input type="text" id="product-name" placeholder="NAMA PRODUK (CONTOH: MP5 CUSTOM)" required class="bg-slate-800 border border-slate-700 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none uppercase font-bold text-blue-300 placeholder:text-slate-600">
+                            <button type="submit" class="bg-blue-600 hover:bg-blue-700 transition-colors p-3 rounded-lg font-bold flex items-center justify-center">
+                                <i class="fas fa-save mr-2"></i>Simpan Resep
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3" id="recipe-inputs"></div>
+                    </form>
+                </section>
+                <section class="glass-card p-6 border-l-4 border-orange-500">
+                    <h2 class="text-xl font-bold mb-6 text-orange-400 flex items-center"><i class="fas fa-hammer mr-2"></i>Area Crafting</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div>
+                            <label class="text-slate-500 text-xs font-bold uppercase mb-1 block">Pilih Produk</label>
+                            <select id="select-product" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 mb-4 focus:ring-2 focus:ring-orange-500 outline-none text-sm font-bold uppercase"></select>
+                            
+                            <label class="text-slate-500 text-xs font-bold uppercase mb-1 block">Jumlah Produksi</label>
+                            <input type="number" id="craft-quantity" value="1" min="1" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 mb-4 focus:ring-2 focus:ring-orange-500 outline-none font-bold">
+                            
+                            <button id="btn-craft" class="w-full p-4 rounded-xl font-bold text-lg shadow-lg transition-all duration-300 transform active:scale-95">PROSES CRAFTING</button>
+                        </div>
+                        <div id="calculation-result" class="bg-slate-900/50 rounded-xl p-4 border border-slate-700 min-h-[150px]">
+                            <div id="cost-details" class="space-y-2 text-sm"></div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <!-- VIEW 2: DATABASE RESEP -->
+        <div id="view-database" class="hidden space-y-6 animate-fadeIn">
+            <section class="glass-card p-6 border-t-4 border-blue-500">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
+                    <h2 class="text-2xl font-black text-blue-400 tracking-wider">DATABASE MASTER</h2>
+                    <div class="flex flex-wrap gap-2 text-xs">
+                        <input type="file" id="import-excel-input" accept=".xlsx, .xls, .csv" class="hidden">
+                        <button onclick="document.getElementById('import-excel-input').click()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-bold flex items-center shadow-lg transition-all">
+                            <i class="fas fa-file-import mr-2 text-sm"></i>IMPORT RESEP
+                        </button>
+                        <button onclick="exportToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 rounded-lg font-bold flex items-center shadow-lg transition-all">
+                            <i class="fas fa-file-excel mr-2 text-sm"></i>EXPORT DATA
+                        </button>
+                        <button onclick="askConfirm('APAKAH ANDA YAKIN INGIN MENGHAPUS SELURUH DATABASE RESEP?', window.doClearAll)" class="bg-rose-900/50 hover:bg-rose-800 text-rose-100 px-5 py-3 rounded-lg font-bold flex items-center transition-all border border-rose-500/30">
+                            <i class="fas fa-trash-alt mr-2 text-sm"></i>HAPUS SEMUA
+                        </button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-800/80 text-blue-300 text-xs font-black uppercase tracking-widest">
+                                <th class="p-5 border-b border-slate-700">Nama Produk</th>
+                                <th class="p-5 border-b border-slate-700">Modal / Unit</th>
+                                <th class="p-5 border-b border-slate-700">Komposisi Bahan</th>
+                                <th class="p-5 border-b border-slate-700 text-center">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="db-table-body"></tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- VIEW 3: HARGA BAHAN -->
+        <div id="view-prices" class="hidden space-y-6 animate-fadeIn">
+            <section class="glass-card p-6 border-t-4 border-emerald-500">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
+                    <div>
+                        <h2 class="text-2xl font-black text-emerald-400 tracking-wider">HARGA PASAR BAHAN</h2>
+                        <p class="text-slate-400 text-xs mt-1">Perbarui harga material untuk kalkulasi modal yang akurat.</p>
+                    </div>
+                    <div class="flex gap-2 text-xs">
+                        <input type="file" id="import-prices-input" accept=".xlsx, .xls, .csv" class="hidden">
+                        <button onclick="document.getElementById('import-prices-input').click()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-3 rounded-lg font-bold flex items-center shadow-lg transition-all">
+                            <i class="fas fa-file-import mr-2 text-sm"></i>IMPORT HARGA EXCEL
+                        </button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" id="price-setup-list"></div>
+            </section>
+        </div>
+
+        <!-- VIEW 4: RIWAYAT -->
+        <div id="view-history" class="hidden space-y-6 animate-fadeIn">
+            <section class="glass-card p-6 border-t-4 border-orange-500">
+                <div class="flex justify-between items-center mb-8">
+                    <h2 class="text-2xl font-black text-orange-400 tracking-wider">LOG TRANSAKSI</h2>
+                    <button onclick="askConfirm('BERSIHKAN SELURUH RIWAYAT TRANSAKSI?', window.doClearHistory)" class="bg-rose-900/50 hover:bg-rose-800 text-rose-100 px-6 py-3 rounded-lg font-bold flex items-center text-xs border border-rose-500/30">
+                        <i class="fas fa-history mr-2"></i>CLEAR HISTORY
+                    </button>
+                </div>
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-800/80 text-orange-300 text-[10px] uppercase font-black tracking-widest">
+                                <th class="p-5 border-b border-slate-700">Timestamp</th>
+                                <th class="p-5 border-b border-slate-700">Produk</th>
+                                <th class="p-5 border-b border-slate-700">Qty</th>
+                                <th class="p-5 border-b border-slate-700">Rincian Material</th>
+                                <th class="p-5 border-b border-slate-700">Total Pengeluaran</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-table-body" class="text-xs"></tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- MODAL KONFIRMASI -->
+        <div id="confirm-modal" class="hidden fixed inset-0 bg-black/90 backdrop-blur-md z-[100] items-center justify-center p-4">
+            <div class="bg-slate-900 border border-slate-700 p-8 rounded-2xl max-w-sm w-full shadow-2xl transform transition-all">
+                <div class="flex justify-center mb-4 text-rose-500 text-5xl">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <h3 class="text-xl font-black mb-2 text-white text-center">KONFIRMASI</h3>
+                <p id="confirm-text" class="text-slate-400 mb-8 text-center text-sm leading-relaxed"></p>
+                <div class="flex gap-4">
+                    <button onclick="closeConfirm()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-all">BATAL</button>
+                    <button id="confirm-btn-exec" class="flex-1 bg-rose-600 hover:bg-rose-700 text-white py-3 rounded-xl font-bold transition-all">LANJUTKAN</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- TOAST NOTIFIKASI -->
+        <div id="toast" class="hidden fixed bottom-10 left-1/2 -translate-x-1/2 px-8 py-4 rounded-full shadow-2xl z-[150] font-black transition-all duration-300 text-white text-sm"></div>
+    </div>
+</body>
+</html>
