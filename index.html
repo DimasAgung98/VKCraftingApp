@@ -357,7 +357,7 @@
             btn.className = `w-full p-4 rounded-xl font-bold transition-all duration-300 ${can ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20 shadow-lg scale-100' : 'bg-slate-700 cursor-not-allowed text-slate-400 opacity-50'}`;
         };
 
-        // --- FITUR SCREENSHOT ---
+        // --- FITUR SCREENSHOT DENGAN TIMESTAMP (UPDATED) ---
         window.takeScreenshot = async (elementId, fileName) => {
             const element = document.getElementById(elementId);
             if (!element) return;
@@ -369,7 +369,29 @@
                     backgroundColor: "#0f172a", 
                     scale: 2, 
                     logging: false,
-                    useCORS: true
+                    useCORS: true,
+                    onclone: (clonedDoc) => {
+                        const clonedElement = clonedDoc.getElementById(elementId);
+                        
+                        // Sembunyikan semua button di dalam screenshot
+                        const buttons = clonedElement.querySelectorAll('button');
+                        buttons.forEach(btn => btn.style.display = 'none');
+                        
+                        // Tambahkan Timestamp (Tanggal & Jam) ke dalam kloningan gambar
+                        const now = new Date();
+                        const timeStr = now.toLocaleString('id-ID', { 
+                            dateStyle: 'medium', 
+                            timeStyle: 'medium' 
+                        });
+                        
+                        const tsContainer = clonedDoc.createElement('div');
+                        tsContainer.innerHTML = `
+                            <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); color: #94a3b8; font-size: 10px; font-weight: bold; text-align: right; text-transform: uppercase; font-family: 'Inter', sans-serif;">
+                                <i class="fas fa-clock" style="margin-right: 5px;"></i>DIAMBIL PADA: ${timeStr}
+                            </div>
+                        `;
+                        clonedElement.appendChild(tsContainer);
+                    }
                 });
 
                 const image = canvas.toDataURL("image/png");
@@ -586,14 +608,13 @@
                             <i class="fas fa-camera"></i>
                         </button>
                     </div>
-                    <!-- REMOVED max-h AND overflow-y TO PREVENT SCROLLING -->
                     <div class="grid grid-cols-1 gap-3 text-center" id="inventory-list"></div>
                 </section>
             </div>
             <div class="lg:col-span-8 space-y-6">
                 <!-- SEKSI BUAT RESEP PRODUK -->
-                <section class="glass-card p-6 border-l-4 border-purple-500">
-                    <h2 class="text-xl font-bold mb-4 text-purple-400 flex items-center text-left uppercase text-sm tracking-widest"><i class="fas fa-edit mr-2 text-white"></i>Setup Resep Produk</h2>
+                <section class="glass-card p-6 border-l-4 border-purple-500 text-left">
+                    <h2 class="text-xl font-bold mb-4 text-purple-400 flex items-center uppercase text-sm tracking-widest"><i class="fas fa-edit mr-2 text-white"></i>Setup Resep Produk</h2>
                     <form id="recipe-form" class="space-y-4">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                             <div class="flex flex-col text-left">
@@ -657,11 +678,11 @@
                 <div class="overflow-x-auto custom-scrollbar">
                     <table class="w-full text-left border-collapse">
                         <thead>
-                            <tr class="bg-slate-800/80 text-blue-300 text-[10px] font-black uppercase tracking-widest">
+                            <tr class="bg-slate-800/80 text-blue-300 text-[10px] font-black uppercase tracking-widest text-center">
                                 <th class="p-5 border-b border-slate-700 text-left">Nama Produk</th>
-                                <th class="p-5 border-b border-slate-700 text-center">Modal / Unit</th>
+                                <th class="p-5 border-b border-slate-700">Modal / Unit</th>
                                 <th class="p-5 border-b border-slate-700 text-left">Komposisi Bahan</th>
-                                <th class="p-5 border-b border-slate-700 text-center">Aksi</th>
+                                <th class="p-5 border-b border-slate-700">Aksi</th>
                             </tr>
                         </thead>
                         <tbody id="db-table-body"></tbody>
