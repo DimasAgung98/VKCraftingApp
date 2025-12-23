@@ -34,7 +34,7 @@
         window.recipes = {};
         window.prices = {};
         window.historyLog = [];
-        window.calculatorList = []; // State untuk kalkulator bahan masal
+        window.calculatorList = []; 
         window.currentUser = null;
         window.currentPendingAction = null;
 
@@ -130,42 +130,42 @@
         window.saveInventoryCloud = async (mat, val) => {
             if (!window.currentUser) return;
             window.inventory[mat] = parseFloat(val) || 0;
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'inventory'), window.inventory);
+            await setDoc(doc(db, 'artifacts', window.appId, 'public', 'data', 'global', 'inventory'), window.inventory);
         };
 
         window.savePriceCloud = async (mat, val) => {
             if (!window.currentUser) return;
             window.prices[mat] = parseFloat(val) || 0;
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'prices'), window.prices);
+            await setDoc(doc(db, 'artifacts', window.appId, 'public', 'data', 'global', 'prices'), window.prices);
         };
 
         window.addRecipeCloud = async (name, data) => {
             if (!window.currentUser) return;
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'recipes', name), data);
+            await setDoc(doc(db, 'artifacts', window.appId, 'public', 'data', 'recipes', name), data);
         };
 
         window.deleteRecipeCloud = async (name) => {
             if (!window.currentUser) return;
-            await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'recipes', name));
+            await deleteDoc(doc(db, 'artifacts', window.appId, 'public', 'data', 'recipes', name));
         };
 
         window.clearAllRecipesCloud = async () => {
             if (!window.currentUser) return;
             const batch = writeBatch(db);
-            Object.keys(window.recipes).forEach(name => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'recipes', name)));
+            Object.keys(window.recipes).forEach(name => batch.delete(doc(db, 'artifacts', window.appId, 'public', 'data', 'recipes', name)));
             await batch.commit();
         };
 
         window.addHistoryCloud = async (logData) => {
             if (!window.currentUser) return;
-            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'history'), logData);
-            await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'inventory'), window.inventory);
+            await addDoc(collection(db, 'artifacts', window.appId, 'public', 'data', 'history'), logData);
+            await setDoc(doc(db, 'artifacts', window.appId, 'public', 'data', 'global', 'inventory'), window.inventory);
         };
 
         window.clearHistoryCloud = async () => {
             if (!window.currentUser) return;
             const batch = writeBatch(db);
-            window.historyLog.forEach(item => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'history', item.id)));
+            window.historyLog.forEach(item => batch.delete(doc(db, 'artifacts', window.appId, 'public', 'data', 'history', item.id)));
             await batch.commit();
         };
 
@@ -360,7 +360,7 @@
             btn.className = `w-full p-4 rounded-xl font-bold transition-all duration-300 ${can ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20 shadow-lg scale-100' : 'bg-slate-700 cursor-not-allowed text-slate-400 opacity-50'}`;
         };
 
-        // --- LOGIKA KALKULATOR BAHAN MASAL (NEW) ---
+        // --- LOGIKA KALKULATOR BAHAN MASAL ---
         window.renderCalculatorDropdown = () => {
             const select = document.getElementById('calc-select-product');
             if (!select) return;
@@ -438,7 +438,7 @@
 
             html += `</div>
                 <div class="mt-4 p-3 bg-slate-800 rounded border border-orange-500/30 flex justify-between items-center">
-                    <span class="text-orange-200 uppercase font-bold text-[10px] tracking-widest">Estimasi Modal Persiapan:</span>
+                    <span class="text-orange-200 uppercase font-bold text-[10px] tracking-widest text-left">Estimasi Modal Persiapan:</span>
                     <span class="text-emerald-400 font-black text-sm">${window.formatCurrency(totalMoney)}</span>
                 </div>
             `;
@@ -673,9 +673,17 @@
             </div>
         </div>
 
-        <!-- VIEW 5: KALKULATOR BAHAN MASAL (NEW) -->
-        <div id="view-calculator" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
+        <!-- VIEW 5: KALKULATOR BAHAN MASAL -->
+        <div id="view-calculator" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn" id="full-calculator-view">
             <div class="lg:col-span-5 space-y-6">
+                <!-- Header khusus Screenshot Tab Kalkulator -->
+                <div class="lg:col-span-12 flex justify-between items-center mb-2 px-2">
+                    <p class="text-slate-500 text-[10px] uppercase font-black tracking-widest italic">Dashboard Perencanaan Produksi</p>
+                    <button onclick="window.takeScreenshot('view-calculator', 'Full_Rencana_Crafting')" class="bg-slate-800 hover:bg-slate-700 px-4 py-2 rounded-lg text-slate-400 hover:text-white transition-all text-[10px] font-black uppercase tracking-widest">
+                        <i class="fas fa-camera mr-2"></i>Screenshot Dashboard
+                    </button>
+                </div>
+
                 <section class="glass-card p-6 text-left border-l-4 border-orange-400">
                     <h2 class="text-xl font-bold mb-6 text-orange-400 uppercase text-sm tracking-widest"><i class="fas fa-plus-circle mr-2"></i>Input Rencana Crafting</h2>
                     <div class="space-y-4">
@@ -691,8 +699,13 @@
                     </div>
                 </section>
 
-                <section class="glass-card p-6 text-left border-l-4 border-blue-400">
-                    <h2 class="text-xl font-bold mb-4 text-blue-400 uppercase text-xs tracking-widest"><i class="fas fa-list mr-2"></i>List Produk Terpilih</h2>
+                <section class="glass-card p-6 text-left border-l-4 border-blue-400" id="calc-list-screenshot-area">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-xl font-bold text-blue-400 uppercase text-xs tracking-widest"><i class="fas fa-list mr-2"></i>List Produk Terpilih</h2>
+                        <button onclick="window.takeScreenshot('calc-list-screenshot-area', 'Daftar_Rencana_Produk')" class="text-slate-400 hover:text-white transition-colors">
+                            <i class="fas fa-camera text-sm"></i>
+                        </button>
+                    </div>
                     <div id="calc-items-list" class="max-h-[300px] overflow-y-auto pr-2 custom-scrollbar"></div>
                     <button onclick="window.calculatorList=[]; window.renderCalculator();" class="w-full mt-4 text-[10px] font-black text-rose-500 uppercase tracking-widest hover:text-rose-400 transition-all">Kosongkan Kalkulator</button>
                 </section>
@@ -718,7 +731,7 @@
                     </div>
                 </div>
                 <div class="overflow-x-auto custom-scrollbar">
-                    <table class="w-full text-left border-collapse"><thead class="text-center"><tr class="bg-slate-800/80 text-blue-300 text-[10px] font-black uppercase tracking-widest"><th class="p-5 border-b border-slate-700 text-left">Nama Produk</th><th class="p-5 border-b border-slate-700">Modal / Unit</th><th class="p-5 border-b border-slate-700 text-left">Komposisi Bahan</th><th class="p-5 border-b border-slate-700 text-center">Aksi</th></tr></thead><tbody id="db-table-body"></tbody></table>
+                    <table class="w-full text-left border-collapse"><thead class="text-center"><tr class="bg-slate-800/80 text-blue-300 text-[10px] font-black uppercase tracking-widest"><th class="p-5 border-b border-slate-700 text-left">Nama Produk</th><th class="p-5 border-b border-slate-700 text-center">Modal / Unit</th><th class="p-5 border-b border-slate-700 text-left">Komposisi Bahan</th><th class="p-5 border-b border-slate-700 text-center">Aksi</th></tr></thead><tbody id="db-table-body"></tbody></table>
                 </div>
             </section>
         </div>
