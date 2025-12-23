@@ -34,6 +34,7 @@
         window.recipes = {};
         window.prices = {};
         window.historyLog = [];
+        window.calculatorList = []; // State untuk kalkulator bahan masal
         window.currentUser = null;
         window.currentPendingAction = null;
 
@@ -113,6 +114,7 @@
                 window.recipes = newRecipes;
                 window.renderDatabaseTable();
                 window.updateProductDropdown();
+                window.renderCalculatorDropdown();
                 window.calculateNeeded();
             });
 
@@ -173,12 +175,13 @@
         };
 
         window.switchTab = (view) => {
-            ['main', 'database', 'prices', 'history'].forEach(v => {
+            ['main', 'database', 'prices', 'history', 'calculator'].forEach(v => {
                 const el = document.getElementById(`view-${v}`);
                 if (el) el.classList.toggle('hidden', view !== v);
                 const btn = document.getElementById(`btn-tab-${v}`);
                 if (btn) btn.className = view === v ? 'tab-active font-semibold py-2 px-1 transition-all' : 'font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all';
             });
+            if(view === 'calculator') window.renderCalculator();
         };
 
         window.renderInventory = () => {
@@ -313,7 +316,7 @@
             let totalOrderCost = 0;
             let html = `
                 <div class="flex justify-between items-center mb-3 border-b border-slate-700 pb-2">
-                    <h4 class="font-bold text-blue-300 text-xs uppercase tracking-widest">Rincian Kalkulasi (${q}x)</h4>
+                    <h4 class="font-bold text-blue-300 text-xs uppercase tracking-widest text-left">Rincian Kalkulasi (${q}x)</h4>
                     <button onclick="window.takeScreenshot('calculation-result', 'Kebutuhan_Crafting')" class="text-slate-400 hover:text-white transition-colors" title="Screenshot Kebutuhan">
                         <i class="fas fa-camera text-sm"></i>
                     </button>
@@ -333,7 +336,7 @@
                 html += `
                     <div class="flex flex-col mb-2 border-b border-slate-800/50 pb-1 text-left">
                         <div class="flex justify-between items-center text-[11px]">
-                            <span class="text-slate-300 uppercase font-medium">${mat}</span>
+                            <span class="text-slate-300 uppercase font-medium text-left">${mat}</span>
                             <span class="${available < totalReq ? 'text-rose-500' : 'text-emerald-400'} font-bold">${totalReq.toFixed(1)} / ${available.toFixed(1)}</span>
                         </div>
                     </div>`;
@@ -342,12 +345,12 @@
             html += `
             <div class="mt-4 space-y-2">
                 <div class="p-2 bg-slate-800/40 rounded border border-slate-700 flex justify-between items-center text-xs">
-                    <span class="text-slate-400 uppercase font-bold text-[9px] tracking-widest">Harga Modal / Unit:</span>
+                    <span class="text-slate-400 uppercase font-bold text-[9px] tracking-widest text-left">Harga Modal / Unit:</span>
                     <span class="text-emerald-300 font-bold">${window.formatCurrency(unitCost)}</span>
                 </div>
                 <div class="p-2 bg-slate-800 rounded border border-blue-500/30 flex justify-between items-center text-xs">
-                    <span class="text-blue-200 uppercase font-bold text-[9px] tracking-widest">Total Biaya Produksi:</span>
-                    <span class="text-emerald-400 font-bold text-sm">${window.formatCurrency(totalOrderCost)}</span>
+                    <span class="text-blue-200 uppercase font-bold text-[9px] tracking-widest text-left">Total Biaya Produksi:</span>
+                    <span class="text-emerald-400 font-bold text-sm text-right">${window.formatCurrency(totalOrderCost)}</span>
                 </div>
             </div>`;
 
@@ -357,13 +360,98 @@
             btn.className = `w-full p-4 rounded-xl font-bold transition-all duration-300 ${can ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/20 shadow-lg scale-100' : 'bg-slate-700 cursor-not-allowed text-slate-400 opacity-50'}`;
         };
 
-        // --- FITUR SCREENSHOT DENGAN TIMESTAMP (UPDATED) ---
+        // --- LOGIKA KALKULATOR BAHAN MASAL (NEW) ---
+        window.renderCalculatorDropdown = () => {
+            const select = document.getElementById('calc-select-product');
+            if (!select) return;
+            select.innerHTML = '<option value="">-- Pilih Produk --</option>' + 
+                Object.keys(window.recipes).sort().map(n => `<option value="${n}">${n}</option>`).join('');
+        };
+
+        window.addToCalculator = () => {
+            const product = document.getElementById('calc-select-product').value;
+            const qty = parseInt(document.getElementById('calc-quantity').value) || 0;
+            if(!product || qty <= 0) return;
+
+            window.calculatorList.push({ product, qty, id: Date.now() });
+            window.renderCalculator();
+            window.showToast(`Ditambahkan ke list: ${qty}x ${product}`, "bg-blue-600");
+        };
+
+        window.removeFromCalculator = (id) => {
+            window.calculatorList = window.calculatorList.filter(item => item.id !== id);
+            window.renderCalculator();
+        };
+
+        window.renderCalculator = () => {
+            const listEl = document.getElementById('calc-items-list');
+            const resultEl = document.getElementById('calc-summary-result');
+            if(!listEl || !resultEl) return;
+
+            // Render list produk terpilih
+            listEl.innerHTML = window.calculatorList.length === 0 ? 
+                '<p class="text-slate-500 italic text-xs py-4 text-center">Belum ada produk yang ditambahkan.</p>' :
+                window.calculatorList.map(item => `
+                <div class="flex justify-between items-center bg-slate-800 p-2 rounded mb-2 border border-slate-700">
+                    <span class="text-xs font-bold text-blue-300 uppercase">${item.qty}x ${item.product}</span>
+                    <button onclick="window.removeFromCalculator(${item.id})" class="text-rose-500 hover:text-rose-400 p-1"><i class="fas fa-times"></i></button>
+                </div>
+            `).join('');
+
+            // Hitung total bahan masal
+            const totalRequirements = {};
+            window.BASE_MATERIALS.forEach(m => totalRequirements[m] = 0);
+            let totalMoney = 0;
+
+            window.calculatorList.forEach(item => {
+                const recipe = window.recipes[item.product];
+                if(recipe) {
+                    Object.entries(recipe).forEach(([mat, reqQty]) => {
+                        const needed = reqQty * item.qty;
+                        totalRequirements[mat] += needed;
+                        totalMoney += (needed * (window.prices[mat] || 0));
+                    });
+                }
+            });
+
+            // Render ringkasan total
+            let html = `
+                <div class="flex justify-between items-center mb-4 border-b border-slate-700 pb-2">
+                    <h4 class="font-bold text-orange-400 text-xs uppercase tracking-widest text-left">Ringkasan Total Persiapan</h4>
+                    <button onclick="window.takeScreenshot('calc-summary-result', 'Laporan_Persiapan_Bahan')" class="text-slate-400 hover:text-white transition-colors">
+                        <i class="fas fa-camera text-sm"></i>
+                    </button>
+                </div>
+                <div class="grid grid-cols-2 gap-2 mb-4">
+            `;
+
+            Object.entries(totalRequirements).forEach(([mat, qty]) => {
+                if(qty > 0) {
+                    html += `
+                        <div class="flex justify-between bg-slate-900/50 p-2 rounded border border-slate-800">
+                            <span class="text-[10px] text-slate-400 uppercase font-bold">${mat}</span>
+                            <span class="text-xs text-white font-black">${qty.toFixed(1)}</span>
+                        </div>
+                    `;
+                }
+            });
+
+            html += `</div>
+                <div class="mt-4 p-3 bg-slate-800 rounded border border-orange-500/30 flex justify-between items-center">
+                    <span class="text-orange-200 uppercase font-bold text-[10px] tracking-widest">Estimasi Modal Persiapan:</span>
+                    <span class="text-emerald-400 font-black text-sm">${window.formatCurrency(totalMoney)}</span>
+                </div>
+            `;
+
+            resultEl.innerHTML = window.calculatorList.length === 0 ? 
+                '<p class="text-slate-500 italic text-center py-10 text-xs">Tambahkan produk untuk menghitung total bahan.</p>' : html;
+        };
+
+        // --- FITUR SCREENSHOT DENGAN TIMESTAMP ---
         window.takeScreenshot = async (elementId, fileName) => {
             const element = document.getElementById(elementId);
             if (!element) return;
-
             window.showToast("Menyiapkan Gambar...", "bg-blue-600");
-            
             try {
                 const canvas = await html2canvas(element, {
                     backgroundColor: "#0f172a", 
@@ -372,18 +460,10 @@
                     useCORS: true,
                     onclone: (clonedDoc) => {
                         const clonedElement = clonedDoc.getElementById(elementId);
-                        
-                        // Sembunyikan semua button di dalam screenshot
                         const buttons = clonedElement.querySelectorAll('button');
                         buttons.forEach(btn => btn.style.display = 'none');
-                        
-                        // Tambahkan Timestamp (Tanggal & Jam) ke dalam kloningan gambar
                         const now = new Date();
-                        const timeStr = now.toLocaleString('id-ID', { 
-                            dateStyle: 'medium', 
-                            timeStyle: 'medium' 
-                        });
-                        
+                        const timeStr = now.toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'medium' });
                         const tsContainer = clonedDoc.createElement('div');
                         tsContainer.innerHTML = `
                             <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.1); color: #94a3b8; font-size: 10px; font-weight: bold; text-align: right; text-transform: uppercase; font-family: 'Inter', sans-serif;">
@@ -393,21 +473,16 @@
                         clonedElement.appendChild(tsContainer);
                     }
                 });
-
                 const image = canvas.toDataURL("image/png");
                 const link = document.createElement("a");
                 link.href = image;
                 link.download = `${fileName}_${new Date().getTime()}.png`;
                 link.click();
-                
                 window.showToast("Gambar Berhasil Diunduh!", "bg-emerald-600");
-            } catch (error) {
-                console.error("Screenshot Error:", error);
-                window.showToast("Gagal mengambil gambar.", "bg-red-600");
-            }
+            } catch (error) { window.showToast("Gagal mengambil gambar.", "bg-red-600"); }
         };
 
-        // --- 7. EXCEL HANDLERS ---
+        // --- EXCEL HANDLERS ---
         window.handleImport = (event) => {
             const file = event.target.files[0];
             if (!file) return;
@@ -420,18 +495,15 @@
                     let count = 0;
                     const batchData = {};
                     jsonData.forEach(row => {
-                        const pName = (row["Nama Produk"] || row["Produk"] || row["Product"] || "").toString().trim().toUpperCase();
-                        const mName = (row["Nama Bahan"] || row["Bahan"] || row["Material"] || "").toString().trim().toUpperCase();
-                        const qty = parseFloat(row["Jumlah"] || row["Kebutuhan"] || row["Qty"] || 0);
+                        const pName = (row["Nama Produk"] || row["Produk"] || "").toString().trim().toUpperCase();
+                        const mName = (row["Nama Bahan"] || row["Bahan"] || "").toString().trim().toUpperCase();
+                        const qty = parseFloat(row["Jumlah"] || row["Qty"] || 0);
                         if (pName && mName && qty > 0 && window.BASE_MATERIALS.includes(mName)) {
                             if (!batchData[pName]) batchData[pName] = {};
                             batchData[pName][mName] = qty;
                         }
                     });
-                    for (const [name, data] of Object.entries(batchData)) {
-                        await window.addRecipeCloud(name, data);
-                        count++;
-                    }
+                    for (const [name, data] of Object.entries(batchData)) { await window.addRecipeCloud(name, data); count++; }
                     window.showToast(`${count} Produk berhasil di-import!`, "bg-blue-600");
                 } catch (err) { alert("Format file salah atau error."); }
             };
@@ -451,18 +523,12 @@
                     const newPrices = { ...window.prices };
                     let count = 0;
                     jsonData.forEach(row => {
-                        const mName = (row["Nama Bahan"] || row["Bahan"] || row["Material"] || "").toString().trim().toUpperCase();
-                        const pValue = parseFloat(row["Harga Bahan"] || row["Harga"] || row["Price"] || 0);
-                        if (mName && pValue >= 0 && window.BASE_MATERIALS.includes(mName)) {
-                            newPrices[mName] = pValue;
-                            count++;
-                        }
+                        const mName = (row["Nama Bahan"] || row["Bahan"] || "").toString().trim().toUpperCase();
+                        const pValue = parseFloat(row["Harga Bahan"] || row["Harga"] || 0);
+                        if (mName && pValue >= 0 && window.BASE_MATERIALS.includes(mName)) { newPrices[mName] = pValue; count++; }
                     });
-                    if(count > 0) {
-                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'prices'), newPrices);
-                        window.showToast(`${count} Harga bahan berhasil diperbarui!`, "bg-emerald-600");
-                    }
-                } catch (err) { alert("Gagal memproses file harga."); }
+                    if(count > 0) { await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'global', 'prices'), newPrices); window.showToast(`${count} Harga diperbarui!`, "bg-emerald-600"); }
+                } catch (err) { alert("Error membaca file."); }
             };
             reader.readAsArrayBuffer(file);
             event.target.value = "";
@@ -485,82 +551,55 @@
             const modal = document.getElementById('confirm-modal');
             const textEl = document.getElementById('confirm-text');
             if (!modal || !textEl) return;
-            textEl.innerText = msg; 
-            modal.classList.remove('hidden'); 
-            modal.classList.add('flex'); 
-            window.currentPendingAction = action; 
+            textEl.innerText = msg; modal.classList.remove('hidden'); modal.classList.add('flex'); window.currentPendingAction = action; 
         };
-
         window.closeConfirm = () => { 
             const modal = document.getElementById('confirm-modal');
-            if (modal) {
-                modal.classList.add('hidden'); 
-                modal.classList.remove('flex'); 
-            }
+            if (modal) { modal.classList.add('hidden'); modal.classList.remove('flex'); }
             window.currentPendingAction = null; 
         };
-
         window.showToast = (text, color) => { 
             const t = document.getElementById('toast'); 
             if(!t) return;
             t.innerText = text; 
-            t.className = `fixed bottom-10 left-1/2 -translate-x-1/2 px-8 py-4 rounded-full shadow-2xl z-[150] font-black transition-all duration-300 text-white text-sm ${color}`; 
-            t.classList.remove('hidden'); 
-            setTimeout(() => t.classList.add('hidden'), 3000); 
+            t.className = `fixed bottom-10 left-1/2 -translate-x-1/2 px-8 py-4 rounded-full shadow-2xl z-[150] font-black transition-all duration-300 text-white text-sm uppercase tracking-widest ${color}`; 
+            t.classList.remove('hidden'); setTimeout(() => t.classList.add('hidden'), 3000); 
         }
 
         document.addEventListener('DOMContentLoaded', () => {
             initApp();
             document.getElementById('import-excel-input').onchange = window.handleImport;
             document.getElementById('import-prices-input').onchange = window.handlePriceImport;
-            document.getElementById('confirm-btn-exec').onclick = async () => { 
-                if(typeof window.currentPendingAction === 'function') {
-                    await window.currentPendingAction(); 
-                }
-                window.closeConfirm(); 
-            };
+            document.getElementById('confirm-btn-exec').onclick = async () => { if(typeof window.currentPendingAction === 'function') await window.currentPendingAction(); window.closeConfirm(); };
             document.getElementById('recipe-form').onsubmit = async (e) => {
                 e.preventDefault();
                 const name = document.getElementById('product-name').value.trim().toUpperCase();
                 const req = {};
-                document.querySelectorAll('.recipe-input').forEach(i => { 
-                    const val = parseFloat(i.value) || 0;
-                    if(val > 0) req[i.dataset.material] = val; 
-                });
+                document.querySelectorAll('.recipe-input').forEach(i => { const val = parseFloat(i.value) || 0; if(val > 0) req[i.dataset.material] = val; });
                 if(!name) return window.showToast('Nama Produk wajib diisi!', "bg-red-600");
                 if(Object.keys(req).length === 0) return window.showToast('Isi minimal 1 bahan kebutuhan!', "bg-red-600");
-                await window.addRecipeCloud(name, req);
-                e.target.reset();
-                window.showToast(`Resep ${name} berhasil disimpan!`, "bg-blue-600");
+                await window.addRecipeCloud(name, req); e.target.reset(); window.showToast(`Resep ${name} disimpan!`, "bg-blue-600");
             };
             document.getElementById('btn-craft').onclick = async () => {
                 const p = document.getElementById('select-product').value;
                 const q = parseInt(document.getElementById('craft-quantity').value) || 0;
                 if(!p || q <= 0) return;
-
                 window.askConfirm(`Mulai proses pembuatan ${q}x ${p}?`, async () => {
                     const usedMaterials = [];
                     let currentTotalCost = 0;
                     Object.entries(window.recipes[p]).forEach(([mat, qty]) => {
-                        const totalUsed = qty * q;
-                        window.inventory[mat] -= totalUsed;
+                        const totalUsed = qty * q; window.inventory[mat] -= totalUsed;
                         usedMaterials.push({ name: mat, qty: totalUsed });
                         currentTotalCost += (totalUsed * (window.prices[mat] || 0));
                     });
-
                     const now = new Date();
                     await window.addHistoryCloud({
-                        timestamp_raw: Date.now(),
-                        timestamp: now.toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }),
-                        productName: p,
-                        productQty: q,
-                        materialsUsed: usedMaterials,
-                        totalCost: currentTotalCost
+                        timestamp_raw: Date.now(), timestamp: now.toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }),
+                        productName: p, productQty: q, materialsUsed: usedMaterials, totalCost: currentTotalCost
                     });
                     window.showToast(`Proses Crafting ${q}x ${p} berhasil!`, "bg-emerald-600");
                 });
             };
-
             document.getElementById('select-product').onchange = window.calculateNeeded;
             document.getElementById('craft-quantity').oninput = window.calculateNeeded;
         });
@@ -584,75 +623,84 @@
         <!-- Header -->
         <header class="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
-                <h1 class="text-3xl font-bold text-blue-400 tracking-tight text-left italic"><i class="fas fa-hammer mr-3 text-white"></i>VK <span class="text-white font-light text-xl">CRAFTING SYSTEM v2.0</span></h1>
+                <h1 class="text-3xl font-bold text-blue-400 tracking-tight text-left italic"><i class="fas fa-hammer mr-3 text-white"></i>VK <span class="text-white font-light text-xl uppercase">Crafting System v2.0</span></h1>
                 <p id="sync-status" class="text-slate-500 text-xs flex items-center mt-1 text-left uppercase font-bold tracking-widest">
-                    <i class="fas fa-circle-notch fa-spin mr-2"></i>Menghubungkan ke layanan cloud...
+                    <i class="fas fa-circle-notch fa-spin mr-2"></i>Menghubungkan...
                 </p>
             </div>
             <nav class="flex flex-wrap gap-4 md:gap-8 overflow-x-auto no-scrollbar pb-2 md:pb-0">
                 <button onclick="window.switchTab('main')" id="btn-tab-main" class="tab-active font-semibold py-2 px-1 whitespace-nowrap transition-all uppercase text-xs tracking-widest"><i class="fas fa-box mr-2"></i>Produksi</button>
-                <button onclick="window.switchTab('database')" id="btn-tab-database" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap uppercase text-xs tracking-widest"><i class="fas fa-database mr-2"></i>Database Master</button>
-                <button onclick="window.switchTab('prices')" id="btn-tab-prices" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap uppercase text-xs tracking-widest"><i class="fas fa-tag mr-2"></i>Harga Bahan</button>
-                <button onclick="window.switchTab('history')" id="btn-tab-history" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap uppercase text-xs tracking-widest"><i class="fas fa-history mr-2"></i>Log Transaksi</button>
+                <button onclick="window.switchTab('calculator')" id="btn-tab-calculator" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap uppercase text-xs tracking-widest"><i class="fas fa-calculator mr-2 text-orange-400"></i>Kalkulator Bahan</button>
+                <button onclick="window.switchTab('database')" id="btn-tab-database" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap uppercase text-xs tracking-widest"><i class="fas fa-database mr-2 text-blue-400"></i>Database Master</button>
+                <button onclick="window.switchTab('prices')" id="btn-tab-prices" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap uppercase text-xs tracking-widest"><i class="fas fa-tag mr-2 text-emerald-400"></i>Harga Bahan</button>
+                <button onclick="window.switchTab('history')" id="btn-tab-history" class="font-semibold py-2 px-1 text-slate-400 hover:text-white transition-all whitespace-nowrap uppercase text-xs tracking-widest"><i class="fas fa-history mr-2 text-slate-400"></i>Log Transaksi</button>
             </nav>
         </header>
 
         <!-- VIEW 1: PRODUKSI & STOK -->
         <div id="view-main" class="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
             <div class="lg:col-span-4 space-y-6">
-                <!-- INVENTORY SECTION (NO SCROLL FOR EASY VIEWING) -->
                 <section class="glass-card p-6" id="inventory-screenshot-area">
                     <div class="flex justify-between items-center mb-4">
                         <h2 class="text-xl font-bold text-yellow-500 flex items-center uppercase text-sm tracking-widest"><i class="fas fa-warehouse mr-2 text-white"></i>Stok Inventaris</h2>
-                        <button onclick="window.takeScreenshot('inventory-screenshot-area', 'Sisa_Stok_Gudang')" class="bg-slate-800 hover:bg-slate-700 p-2 rounded-lg text-slate-400 hover:text-white transition-all" title="Screenshot Stok">
-                            <i class="fas fa-camera"></i>
-                        </button>
+                        <button onclick="window.takeScreenshot('inventory-screenshot-area', 'Sisa_Stok_Gudang')" class="bg-slate-800 hover:bg-slate-700 p-2 rounded-lg text-slate-400 hover:text-white transition-all"><i class="fas fa-camera"></i></button>
                     </div>
                     <div class="grid grid-cols-1 gap-3 text-center" id="inventory-list"></div>
                 </section>
             </div>
             <div class="lg:col-span-8 space-y-6">
-                <!-- SEKSI BUAT RESEP PRODUK -->
                 <section class="glass-card p-6 border-l-4 border-purple-500 text-left">
                     <h2 class="text-xl font-bold mb-4 text-purple-400 flex items-center uppercase text-sm tracking-widest"><i class="fas fa-edit mr-2 text-white"></i>Setup Resep Produk</h2>
                     <form id="recipe-form" class="space-y-4">
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                            <div class="flex flex-col text-left">
-                                <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 tracking-widest">Nama Produk</label>
-                                <input type="text" id="product-name" placeholder="CONTOH: AK-47" required 
-                                       class="bg-slate-800 border border-slate-700 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none uppercase font-bold text-blue-300 placeholder:text-slate-600 text-sm">
-                            </div>
-                            <div class="flex items-end">
-                                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 transition-colors p-3 rounded-lg font-bold flex items-center justify-center text-xs uppercase tracking-widest h-[52px] shadow-lg">
-                                    <i class="fas fa-save mr-2"></i>Simpan Resep
-                                </button>
-                            </div>
+                            <div class="flex flex-col text-left"><label class="text-slate-500 text-[10px] font-bold uppercase mb-1 tracking-widest">Nama Produk</label><input type="text" id="product-name" placeholder="CONTOH: AK-47" required class="bg-slate-800 border border-slate-700 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 outline-none uppercase font-bold text-blue-300 text-sm"></div>
+                            <div class="flex items-end"><button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 transition-colors p-3 rounded-lg font-bold flex items-center justify-center text-xs uppercase tracking-widest h-[52px] shadow-lg"><i class="fas fa-save mr-2"></i>Simpan Resep</button></div>
                         </div>
-                        
-                        <div class="border-t border-slate-800 pt-4">
-                            <label class="text-slate-500 text-[10px] font-bold uppercase mb-3 block tracking-widest text-center">Bahan yang Dibutuhkan untuk 1 Unit</label>
-                            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 text-center" id="recipe-inputs"></div>
-                        </div>
+                        <div class="border-t border-slate-800 pt-4"><label class="text-slate-500 text-[10px] font-bold uppercase mb-3 block tracking-widest text-center">Bahan yang Dibutuhkan untuk 1 Unit</label><div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 text-center" id="recipe-inputs"></div></div>
                     </form>
                 </section>
-
-                <!-- CRAFTING AREA WITH SCREENSHOT -->
                 <section class="glass-card p-6 border-l-4 border-orange-500 text-left">
                     <h2 class="text-xl font-bold mb-6 text-orange-400 flex items-center uppercase text-sm tracking-widest"><i class="fas fa-hammer mr-2 text-white"></i>Area Crafting</h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div>
-                            <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 block tracking-widest text-left">Pilih Produk</label>
-                            <select id="select-product" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 mb-4 focus:ring-2 focus:ring-orange-500 outline-none text-sm font-bold uppercase"></select>
-                            
-                            <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 block tracking-widest text-left">Jumlah Produksi</label>
-                            <input type="number" id="craft-quantity" value="1" min="1" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 mb-4 focus:ring-2 focus:ring-orange-500 outline-none font-bold text-center">
-                            
-                            <button id="btn-craft" class="w-full p-4 rounded-xl font-bold text-lg shadow-lg transition-all duration-300 transform active:scale-95 uppercase tracking-widest text-xs">PROSES CRAFTING</button>
+                            <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 block tracking-widest text-left">Pilih Produk</label><select id="select-product" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 mb-4 focus:ring-2 focus:ring-orange-500 outline-none text-sm font-bold uppercase"></select>
+                            <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 block tracking-widest text-left">Jumlah Produksi</label><input type="number" id="craft-quantity" value="1" min="1" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 mb-4 focus:ring-2 focus:ring-orange-500 outline-none font-bold text-center">
+                            <button id="btn-craft" class="w-full p-4 rounded-xl font-bold text-lg shadow-lg transition-all transform active:scale-95 uppercase tracking-widest text-xs">PROSES CRAFTING</button>
                         </div>
-                        <div id="calculation-result" class="bg-slate-900/50 rounded-xl p-4 border border-slate-700 min-h-[150px]">
-                            <div id="cost-details" class="space-y-2 text-sm"></div>
-                        </div>
+                        <div id="calculation-result" class="bg-slate-900/50 rounded-xl p-4 border border-slate-700 min-h-[150px]"><div id="cost-details" class="space-y-2 text-sm"></div></div>
                     </div>
+                </section>
+            </div>
+        </div>
+
+        <!-- VIEW 5: KALKULATOR BAHAN MASAL (NEW) -->
+        <div id="view-calculator" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-6 animate-fadeIn">
+            <div class="lg:col-span-5 space-y-6">
+                <section class="glass-card p-6 text-left border-l-4 border-orange-400">
+                    <h2 class="text-xl font-bold mb-6 text-orange-400 uppercase text-sm tracking-widest"><i class="fas fa-plus-circle mr-2"></i>Input Rencana Crafting</h2>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 block tracking-widest">Pilih Produk</label>
+                            <select id="calc-select-product" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 outline-none text-xs font-bold uppercase"></select>
+                        </div>
+                        <div>
+                            <label class="text-slate-500 text-[10px] font-bold uppercase mb-1 block tracking-widest">Jumlah Unit</label>
+                            <input type="number" id="calc-quantity" value="1" min="1" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-3 outline-none font-bold text-sm text-center">
+                        </div>
+                        <button onclick="window.addToCalculator()" class="w-full bg-orange-600 hover:bg-orange-700 p-4 rounded-xl font-black text-xs uppercase tracking-[0.2em] shadow-lg transition-all">Tambahkan ke List</button>
+                    </div>
+                </section>
+
+                <section class="glass-card p-6 text-left border-l-4 border-blue-400">
+                    <h2 class="text-xl font-bold mb-4 text-blue-400 uppercase text-xs tracking-widest"><i class="fas fa-list mr-2"></i>List Produk Terpilih</h2>
+                    <div id="calc-items-list" class="max-h-[300px] overflow-y-auto pr-2 custom-scrollbar"></div>
+                    <button onclick="window.calculatorList=[]; window.renderCalculator();" class="w-full mt-4 text-[10px] font-black text-rose-500 uppercase tracking-widest hover:text-rose-400 transition-all">Kosongkan Kalkulator</button>
+                </section>
+            </div>
+
+            <div class="lg:col-span-7">
+                <section class="glass-card p-8 border-t-4 border-orange-500" id="calc-summary-result">
+                    <!-- Summary Result via JS -->
                 </section>
             </div>
         </div>
@@ -660,33 +708,17 @@
         <!-- VIEW 2: DATABASE RESEP -->
         <div id="view-database" class="hidden space-y-6 animate-fadeIn">
             <section class="glass-card p-6 border-t-4 border-blue-500">
-                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8">
-                    <h2 class="text-2xl font-black text-blue-400 tracking-wider text-left uppercase text-lg italic">Database Master Resep</h2>
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 text-left">
+                    <h2 class="text-2xl font-black text-blue-400 tracking-wider uppercase text-lg italic">Database Master Resep</h2>
                     <div class="flex flex-wrap gap-2 text-xs">
                         <input type="file" id="import-excel-input" accept=".xlsx, .xls, .csv" class="hidden">
-                        <button onclick="document.getElementById('import-excel-input').click()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-bold flex items-center shadow-lg transition-all uppercase tracking-widest">
-                            <i class="fas fa-file-import mr-2 text-sm"></i>Import Resep
-                        </button>
-                        <button onclick="window.exportToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 rounded-lg font-bold flex items-center shadow-lg transition-all uppercase tracking-widest">
-                            <i class="fas fa-file-excel mr-2 text-sm"></i>Export Data
-                        </button>
-                        <button onclick="window.askConfirm('APAKAH ANDA YAKIN INGIN MENGHAPUS SELURUH DATABASE RESEP?', window.doClearAll)" class="bg-rose-900/50 hover:bg-rose-800 text-rose-100 px-5 py-3 rounded-lg font-bold flex items-center transition-all border border-rose-500/30 uppercase tracking-widest">
-                            <i class="fas fa-trash-alt mr-2 text-sm"></i>Hapus Semua
-                        </button>
+                        <button onclick="document.getElementById('import-excel-input').click()" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg font-bold shadow-lg transition-all uppercase tracking-widest"><i class="fas fa-file-import mr-2 text-sm"></i>Import Resep</button>
+                        <button onclick="window.exportToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-3 rounded-lg font-bold shadow-lg transition-all uppercase tracking-widest"><i class="fas fa-file-excel mr-2 text-sm"></i>Export Data</button>
+                        <button onclick="window.askConfirm('HAPUS SELURUH DATABASE RESEP?', window.doClearAll)" class="bg-rose-900/50 hover:bg-rose-800 text-rose-100 px-5 py-3 rounded-lg font-bold border border-rose-500/30 uppercase tracking-widest"><i class="fas fa-trash-alt mr-2 text-sm"></i>Hapus Semua</button>
                     </div>
                 </div>
                 <div class="overflow-x-auto custom-scrollbar">
-                    <table class="w-full text-left border-collapse">
-                        <thead>
-                            <tr class="bg-slate-800/80 text-blue-300 text-[10px] font-black uppercase tracking-widest text-center">
-                                <th class="p-5 border-b border-slate-700 text-left">Nama Produk</th>
-                                <th class="p-5 border-b border-slate-700">Modal / Unit</th>
-                                <th class="p-5 border-b border-slate-700 text-left">Komposisi Bahan</th>
-                                <th class="p-5 border-b border-slate-700">Aksi</th>
-                            </tr>
-                        </thead>
-                        <tbody id="db-table-body"></tbody>
-                    </table>
+                    <table class="w-full text-left border-collapse"><thead class="text-center"><tr class="bg-slate-800/80 text-blue-300 text-[10px] font-black uppercase tracking-widest"><th class="p-5 border-b border-slate-700 text-left">Nama Produk</th><th class="p-5 border-b border-slate-700">Modal / Unit</th><th class="p-5 border-b border-slate-700 text-left">Komposisi Bahan</th><th class="p-5 border-b border-slate-700 text-center">Aksi</th></tr></thead><tbody id="db-table-body"></tbody></table>
                 </div>
             </section>
         </div>
@@ -694,17 +726,9 @@
         <!-- VIEW 3: HARGA BAHAN -->
         <div id="view-prices" class="hidden space-y-6 animate-fadeIn">
             <section class="glass-card p-6 border-t-4 border-emerald-500 text-left">
-                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-                    <div>
-                        <h2 class="text-2xl font-black text-emerald-400 tracking-wider uppercase text-lg italic">Harga Pasar Bahan</h2>
-                        <p class="text-slate-400 text-xs mt-1 uppercase font-bold tracking-tighter">Perbarui harga material untuk kalkulasi modal yang akurat.</p>
-                    </div>
-                    <div class="flex gap-2 text-xs">
-                        <input type="file" id="import-prices-input" accept=".xlsx, .xls, .csv" class="hidden">
-                        <button onclick="document.getElementById('import-prices-input').click()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold flex items-center shadow-lg transition-all uppercase tracking-widest">
-                            <i class="fas fa-file-import mr-2 text-sm"></i>Import Harga Excel
-                        </button>
-                    </div>
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8 text-left">
+                    <div><h2 class="text-2xl font-black text-emerald-400 tracking-wider uppercase text-lg italic">Harga Pasar Bahan</h2><p class="text-slate-400 text-xs mt-1 uppercase font-bold tracking-tighter">Perbarui harga material untuk kalkulasi modal yang akurat.</p></div>
+                    <input type="file" id="import-prices-input" accept=".xlsx, .xls, .csv" class="hidden"><button onclick="document.getElementById('import-prices-input').click()" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-bold shadow-lg uppercase tracking-widest text-xs"><i class="fas fa-file-import mr-2 text-sm"></i>Import Harga Excel</button>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-center" id="price-setup-list"></div>
             </section>
@@ -713,43 +737,13 @@
         <!-- VIEW 4: RIWAYAT -->
         <div id="view-history" class="hidden space-y-6 animate-fadeIn">
             <section class="glass-card p-6 border-t-4 border-orange-500">
-                <div class="flex justify-between items-center mb-8 text-left">
-                    <h2 class="text-2xl font-black text-orange-400 tracking-wider uppercase text-lg italic">Log Transaksi</h2>
-                    <button onclick="window.askConfirm('BERSIHKAN SELURUH RIWAYAT TRANSAKSI?', window.doClearHistory)" class="bg-rose-900/50 hover:bg-rose-800 text-rose-100 px-6 py-3 rounded-lg font-bold flex items-center text-xs border border-rose-500/30 uppercase tracking-widest">
-                        <i class="fas fa-history mr-2"></i>Clear History
-                    </button>
-                </div>
-                <div class="overflow-x-auto custom-scrollbar">
-                    <table class="w-full text-left border-collapse text-center">
-                        <thead>
-                            <tr class="bg-slate-800/80 text-orange-300 text-[10px] uppercase font-black tracking-widest">
-                                <th class="p-5 border-b border-slate-700 text-left text-[10px]">Timestamp</th>
-                                <th class="p-5 border-b border-slate-700 text-left text-[10px]">Produk</th>
-                                <th class="p-5 border-b border-slate-700 text-center text-[10px]">Qty</th>
-                                <th class="p-5 border-b border-slate-700 text-left text-[10px]">Rincian Material</th>
-                                <th class="p-5 border-b border-slate-700 text-right text-[10px]">Total Biaya</th>
-                            </tr>
-                        </thead>
-                        <tbody id="history-table-body" class="text-xs"></tbody>
-                    </table>
-                </div>
+                <div class="flex justify-between items-center mb-8 text-left"><h2 class="text-2xl font-black text-orange-400 tracking-wider uppercase text-lg italic">Log Transaksi</h2><button onclick="window.askConfirm('BERSIHKAN SELURUH RIWAYAT TRANSAKSI?', window.doClearHistory)" class="bg-rose-900/50 hover:bg-rose-800 text-rose-100 px-6 py-3 rounded-lg font-bold text-xs border border-rose-500/30 uppercase tracking-widest"><i class="fas fa-history mr-2"></i>Clear History</button></div>
+                <div class="overflow-x-auto custom-scrollbar"><table class="w-full text-left border-collapse text-center"><thead><tr class="bg-slate-800/80 text-orange-300 text-[10px] uppercase font-black tracking-widest"><th class="p-5 border-b border-slate-700 text-left text-[10px]">Timestamp</th><th class="p-5 border-b border-slate-700 text-left text-[10px]">Produk</th><th class="p-5 border-b border-slate-700 text-center text-[10px]">Qty</th><th class="p-5 border-b border-slate-700 text-left text-[10px]">Rincian Material</th><th class="p-5 border-b border-slate-700 text-right text-[10px]">Total Biaya</th></tr></thead><tbody id="history-table-body" class="text-xs"></tbody></table></div>
             </section>
         </div>
 
         <!-- MODAL KONFIRMASI -->
-        <div id="confirm-modal" class="hidden fixed inset-0 bg-black/90 backdrop-blur-md z-[100] items-center justify-center p-4">
-            <div class="bg-slate-900 border border-slate-700 p-8 rounded-2xl max-w-sm w-full shadow-2xl transform transition-all text-center">
-                <div class="flex justify-center mb-4 text-rose-500 text-5xl">
-                    <i class="fas fa-exclamation-circle"></i>
-                </div>
-                <h3 class="text-xl font-black mb-2 text-white text-center uppercase tracking-widest">Konfirmasi</h3>
-                <p id="confirm-text" class="text-slate-400 mb-8 text-center text-sm leading-relaxed"></p>
-                <div class="flex gap-4">
-                    <button onclick="window.closeConfirm()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-all text-xs uppercase tracking-widest">Batal</button>
-                    <button id="confirm-btn-exec" class="flex-1 bg-rose-600 hover:bg-rose-700 text-white py-3 rounded-xl font-bold transition-all text-xs uppercase tracking-widest shadow-lg shadow-rose-900/40">Lanjutkan</button>
-                </div>
-            </div>
-        </div>
+        <div id="confirm-modal" class="hidden fixed inset-0 bg-black/90 backdrop-blur-md z-[200] items-center justify-center p-4"><div class="bg-slate-900 border border-slate-700 p-8 rounded-2xl max-w-sm w-full shadow-2xl transform transition-all text-center"><div class="flex justify-center mb-4 text-rose-500 text-5xl"><i class="fas fa-exclamation-circle"></i></div><h3 class="text-xl font-black mb-2 text-white text-center uppercase tracking-widest">Konfirmasi</h3><p id="confirm-text" class="text-slate-400 mb-8 text-center text-sm leading-relaxed"></p><div class="flex gap-4"><button onclick="window.closeConfirm()" class="flex-1 bg-slate-800 hover:bg-slate-700 text-white py-3 rounded-xl font-bold transition-all text-xs uppercase tracking-widest">Batal</button><button id="confirm-btn-exec" class="flex-1 bg-rose-600 hover:bg-rose-700 text-white py-3 rounded-xl font-bold transition-all text-xs uppercase tracking-widest shadow-lg shadow-rose-900/40">Lanjutkan</button></div></div></div>
 
         <!-- TOAST NOTIFIKASI -->
         <div id="toast" class="hidden fixed bottom-10 left-1/2 -translate-x-1/2 px-8 py-4 rounded-full shadow-2xl z-[150] font-black transition-all duration-300 text-white text-sm uppercase tracking-widest"></div>
